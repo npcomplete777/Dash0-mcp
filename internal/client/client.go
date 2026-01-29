@@ -33,6 +33,19 @@ func New(cfg *config.Config) *Client {
 	}
 }
 
+// NewWithBaseURL creates a new Dash0 API client with a custom base URL.
+// This is primarily used for testing with mock servers.
+func NewWithBaseURL(baseURL, authToken string) *Client {
+	return &Client{
+		baseURL:   baseURL,
+		authToken: authToken,
+		debug:     false,
+		httpClient: &http.Client{
+			Timeout: 60 * time.Second,
+		},
+	}
+}
+
 // ToolResult represents the result of an MCP tool call.
 type ToolResult struct {
 	Success bool        `json:"success"`
