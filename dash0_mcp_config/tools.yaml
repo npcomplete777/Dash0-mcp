@@ -1,0 +1,213 @@
+# Dash0 MCP Tool Configuration
+#
+# Each tool can be enabled/disabled without code changes.
+# Use profiles for quick switching between tool sets.
+#
+# Environment variables:
+#   DASH0_MCP_PROFILE - Profile name (demo, full, readonly, minimal)
+#   DASH0_MCP_CONFIG_DIR - Path to this config directory
+
+version: "1.0"
+default_profile: full
+
+settings:
+  log_enabled_tools: true
+  strict_mode: true
+
+tools:
+  #############################################################################
+  # DASHBOARD OPERATIONS
+  #############################################################################
+  dashboards:
+    dash0_dashboards_list:
+      enabled: true
+      description: "List all dashboards in Dash0"
+      dangerous: false
+
+    dash0_dashboards_get:
+      enabled: true
+      description: "Get a specific dashboard by ID"
+      dangerous: false
+
+    dash0_dashboards_create:
+      enabled: true
+      description: "Create a new Perses dashboard"
+      dangerous: false
+
+    dash0_dashboards_update:
+      enabled: true
+      description: "Update an existing dashboard"
+      dangerous: false
+
+    dash0_dashboards_delete:
+      enabled: false
+      description: "Delete a dashboard (DESTRUCTIVE)"
+      dangerous: true
+
+  #############################################################################
+  # CHECK RULES (ALERTING)
+  #############################################################################
+  alerting:
+    dash0_alerting_check_rules_list:
+      enabled: true
+      description: "List all Prometheus-style check rules"
+      dangerous: false
+
+    dash0_alerting_check_rules_get:
+      enabled: true
+      description: "Get a specific check rule by ID"
+      dangerous: false
+
+    dash0_alerting_check_rules_create:
+      enabled: true
+      description: "Create a new check rule (PromQL-based alert)"
+      dangerous: false
+
+    dash0_alerting_check_rules_update:
+      enabled: true
+      description: "Update an existing check rule"
+      dangerous: false
+
+    dash0_alerting_check_rules_delete:
+      enabled: false
+      description: "Delete a check rule (DESTRUCTIVE)"
+      dangerous: true
+
+  #############################################################################
+  # SYNTHETIC CHECKS
+  #############################################################################
+  syntheticchecks:
+    dash0_synthetic_checks_list:
+      enabled: true
+      description: "List all synthetic monitoring checks"
+      dangerous: false
+
+    dash0_synthetic_checks_get:
+      enabled: true
+      description: "Get a specific synthetic check"
+      dangerous: false
+
+    dash0_synthetic_checks_create:
+      enabled: true
+      description: "Create a new synthetic check (HTTP, browser, etc.)"
+      dangerous: false
+
+    dash0_synthetic_checks_update:
+      enabled: true
+      description: "Update a synthetic check"
+      dangerous: false
+
+    dash0_synthetic_checks_delete:
+      enabled: false
+      description: "Delete a synthetic check (DESTRUCTIVE)"
+      dangerous: true
+
+  #############################################################################
+  # SAMPLING RULES
+  #############################################################################
+  samplingrules:
+    dash0_sampling_rules_list:
+      enabled: true
+      description: "List all sampling rules"
+      dangerous: false
+
+    dash0_sampling_rules_get:
+      enabled: true
+      description: "Get a specific sampling rule"
+      dangerous: false
+
+    dash0_sampling_rules_create:
+      enabled: true
+      description: "Create a sampling rule to control data ingestion"
+      dangerous: false
+
+    dash0_sampling_rules_update:
+      enabled: true
+      description: "Update a sampling rule"
+      dangerous: false
+
+    dash0_sampling_rules_delete:
+      enabled: false
+      description: "Delete a sampling rule (DESTRUCTIVE)"
+      dangerous: true
+
+  #############################################################################
+  # VIEWS (SAVED QUERIES)
+  #############################################################################
+  views:
+    dash0_views_list:
+      enabled: true
+      description: "List all saved views"
+      dangerous: false
+
+    dash0_views_get:
+      enabled: true
+      description: "Get a specific saved view"
+      dangerous: false
+
+    dash0_views_create:
+      enabled: true
+      description: "Create a saved view with filters and columns"
+      dangerous: false
+
+    dash0_views_update:
+      enabled: true
+      description: "Update a saved view"
+      dangerous: false
+
+    dash0_views_delete:
+      enabled: false
+      description: "Delete a saved view (DESTRUCTIVE)"
+      dangerous: true
+
+  #############################################################################
+  # TELEMETRY - LOGS
+  #############################################################################
+  logs:
+    dash0_logs_query:
+      enabled: true
+      description: "Query logs from Dash0 with filtering by service, time range"
+      dangerous: false
+
+    dash0_logs_send:
+      enabled: true
+      description: "Send OTLP logs to Dash0"
+      dangerous: false
+
+  #############################################################################
+  # TELEMETRY - SPANS
+  #############################################################################
+  spans:
+    dash0_spans_query:
+      enabled: true
+      description: "Query spans/traces from Dash0 with filtering by service, latency, status"
+      dangerous: false
+
+    dash0_spans_send:
+      enabled: true
+      description: "Send OTLP spans to Dash0"
+      dangerous: false
+
+  #############################################################################
+  # IMPORT TOOLS
+  #############################################################################
+  imports:
+    dash0_import_dashboard:
+      enabled: true
+      description: "Import a Grafana dashboard into Dash0 (auto-converts)"
+      dangerous: false
+
+    dash0_import_check_rule:
+      enabled: true
+      description: "Import a Prometheus alerting rule"
+      dangerous: false
+
+    dash0_import_synthetic_check:
+      enabled: true
+      description: "Import a synthetic check configuration"
+      dangerous: false
+
+    dash0_import_view:
+      enabled: true
+      description: "Import a saved view configuration"
+      dangerous: false

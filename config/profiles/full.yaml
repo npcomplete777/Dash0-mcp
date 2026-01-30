@@ -1,0 +1,19 @@
+# Full Profile: All Dash0 Tools
+#
+# Enables all tools except destructive delete operations.
+# Use for comprehensive Dash0 automation.
+#
+# Tool count: ~28
+
+name: full
+description: "Full Dash0 API coverage minus destructive deletes"
+
+enable_all: true
+
+# Disable only destructive operations by default
+disable:
+  - dash0_dashboards_delete
+  - dash0_alerting_check_rules_delete
+  - dash0_synthetic_checks_delete
+  - dash0_sampling_rules_delete
+  - dash0_views_delete

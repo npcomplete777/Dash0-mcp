@@ -1,0 +1,47 @@
+# Demo Profile: Observability Workflow
+#
+# Enables tools for demonstrating VALIS closed-loop workflows:
+# - Dashboard creation and viewing
+# - Alert rule configuration  
+# - Synthetic check setup
+# - Trace/log querying for RCA
+# - Import from Grafana/Prometheus
+#
+# Tool count: 20
+
+name: demo
+description: "Observability demo workflow for VALIS integration"
+
+enable:
+  # Dashboards - full CRUD except delete
+  - dash0_dashboards_list
+  - dash0_dashboards_get
+  - dash0_dashboards_create
+  - dash0_dashboards_update
+
+  # Alerting - full CRUD except delete
+  - dash0_alerting_check_rules_list
+  - dash0_alerting_check_rules_get
+  - dash0_alerting_check_rules_create
+  - dash0_alerting_check_rules_update
+
+  # Synthetic Checks - full CRUD except delete
+  - dash0_synthetic_checks_list
+  - dash0_synthetic_checks_get
+  - dash0_synthetic_checks_create
+  - dash0_synthetic_checks_update
+
+  # Telemetry Query (critical for RCA)
+  - dash0_logs_query
+  - dash0_spans_query
+
+  # Import (for Grafana migration demos)
+  - dash0_import_dashboard
+  - dash0_import_check_rule
+
+  # Views - list, get, create
+  - dash0_views_list
+  - dash0_views_get
+  - dash0_views_create
+
+disable_unlisted: true

@@ -1,0 +1,33 @@
+# Binaries
+dash0-mcp
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test binaries
+*.test
+*.out
+
+# Go workspace file
+go.work
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Config with secrets (if any)
+*.local
+.env
+*.pem
+*.key
+
+# Claude artifacts
+.claude/

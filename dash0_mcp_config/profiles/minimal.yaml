@@ -1,0 +1,28 @@
+# Minimal Profile: Core Operations Only
+#
+# Bare minimum tools for tight context situations.
+# Focus on querying and viewing - no modifications.
+#
+# Tool count: 8
+
+name: minimal
+description: "Minimal Dash0 tools for context-constrained sessions"
+
+enable:
+  # Telemetry Query - most critical for observability
+  - dash0_logs_query
+  - dash0_spans_query
+
+  # Dashboards - view only
+  - dash0_dashboards_list
+  - dash0_dashboards_get
+
+  # Alerts - view only
+  - dash0_alerting_check_rules_list
+  - dash0_alerting_check_rules_get
+
+  # Synthetics - view only
+  - dash0_synthetic_checks_list
+  - dash0_synthetic_checks_get
+
+disable_unlisted: true

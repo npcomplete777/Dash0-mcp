@@ -1,0 +1,36 @@
+# Read-Only Profile: Safe Exploration
+#
+# Only read operations - no create, update, or delete.
+# Safe for exploration, reporting, and analysis.
+#
+# Tool count: 12
+
+name: readonly
+description: "Read-only Dash0 access for safe exploration"
+
+enable:
+  # Dashboard read
+  - dash0_dashboards_list
+  - dash0_dashboards_get
+
+  # Alerting read
+  - dash0_alerting_check_rules_list
+  - dash0_alerting_check_rules_get
+
+  # Synthetic read
+  - dash0_synthetic_checks_list
+  - dash0_synthetic_checks_get
+
+  # Sampling read
+  - dash0_sampling_rules_list
+  - dash0_sampling_rules_get
+
+  # Views read
+  - dash0_views_list
+  - dash0_views_get
+
+  # Telemetry query (read-only by nature)
+  - dash0_logs_query
+  - dash0_spans_query
+
+disable_unlisted: true
