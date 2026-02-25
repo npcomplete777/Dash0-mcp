@@ -37,6 +37,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "\nOptional environment variables:\n")
 		fmt.Fprintf(os.Stderr, "  DASH0_REGION      - Region (eu-west-1, us-east-1), default: eu-west-1\n")
 		fmt.Fprintf(os.Stderr, "  DASH0_BASE_URL    - Custom base URL (overrides region)\n")
+		fmt.Fprintf(os.Stderr, "  DASH0_DATASET     - Dataset to use for all API calls\n")
 		fmt.Fprintf(os.Stderr, "  DASH0_DEBUG       - Enable debug logging (true/false)\n")
 		fmt.Fprintf(os.Stderr, "  DASH0_MCP_PROFILE - Tool profile (full, demo, readonly, minimal)\n")
 		fmt.Fprintf(os.Stderr, "  DASH0_MCP_CONFIG_DIR - Path to config directory\n")
@@ -142,6 +143,9 @@ func main() {
 	fmt.Fprintf(os.Stderr, "%s v%s starting\n", serverName, serverVersion)
 	fmt.Fprintf(os.Stderr, "  Region: %s\n", cfg.Region)
 	fmt.Fprintf(os.Stderr, "  Base URL: %s\n", cfg.BaseURL)
+	if cfg.Dataset != "" {
+		fmt.Fprintf(os.Stderr, "  Dataset: %s\n", cfg.Dataset)
+	}
 	fmt.Fprintf(os.Stderr, "  Tools registered: %d/%d\n", reg.EnabledCount(), reg.ToolCount())
 	if cfg.Debug {
 		fmt.Fprintf(os.Stderr, "  Debug mode: enabled\n")

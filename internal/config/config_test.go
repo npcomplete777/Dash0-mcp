@@ -378,6 +378,53 @@ func TestParseBool(t *testing.T) {
 	}
 }
 
+func TestLoad_Dataset(t *testing.T) {
+	// Save and clear environment
+	savedDataset := os.Getenv("DASH0_DATASET")
+	savedAuthToken := os.Getenv("DASH0_AUTH_TOKEN")
+	defer func() {
+		os.Setenv("DASH0_DATASET", savedDataset)
+		os.Setenv("DASH0_AUTH_TOKEN", savedAuthToken)
+	}()
+
+	tests := []struct {
+		name        string
+		dataset     string
+		wantDataset string
+	}{
+		{
+			name:        "dataset configured",
+			dataset:     "otel-demo-gitops",
+			wantDataset: "otel-demo-gitops",
+		},
+		{
+			name:        "dataset not configured",
+			dataset:     "",
+			wantDataset: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			os.Setenv("DASH0_AUTH_TOKEN", "test-token")
+			if tt.dataset != "" {
+				os.Setenv("DASH0_DATASET", tt.dataset)
+			} else {
+				os.Unsetenv("DASH0_DATASET")
+			}
+
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+
+			if cfg.Dataset != tt.wantDataset {
+				t.Errorf("Dataset = %q, want %q", cfg.Dataset, tt.wantDataset)
+			}
+		})
+	}
+}
+
 // contains checks if substr is in s
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||

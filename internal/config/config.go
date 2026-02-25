@@ -28,6 +28,8 @@ type Config struct {
 	AuthToken string
 	// Region is the Dash0 deployment region.
 	Region Region
+	// Dataset is the Dash0 dataset to use for all API calls.
+	Dataset string
 	// Debug enables debug logging.
 	Debug bool
 }
@@ -37,6 +39,7 @@ type Config struct {
 //   - DASH0_AUTH_TOKEN (required): Bearer token for API authentication
 //   - DASH0_REGION (optional): Region (eu-west-1, us-east-1, us-west-2), defaults to eu-west-1
 //   - DASH0_BASE_URL (optional): Override the base URL (for custom deployments)
+//   - DASH0_DATASET (optional): Dataset to use for all API calls
 //   - DASH0_DEBUG (optional): Enable debug logging
 func Load() (*Config, error) {
 	regionEnv := coalesce(os.Getenv("DASH0_REGION"), string(RegionEUWest1))
@@ -64,6 +67,7 @@ func Load() (*Config, error) {
 		AuthToken: coalesce(os.Getenv("DASH0_AUTH_TOKEN"), os.Getenv("DASH0_TOKEN")),
 		Region:    Region(regionEnv),
 		BaseURL:   baseURL,
+		Dataset:   os.Getenv("DASH0_DATASET"),
 		Debug:     parseBool(os.Getenv("DASH0_DEBUG")),
 	}
 

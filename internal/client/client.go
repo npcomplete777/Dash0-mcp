@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/ajacobs/dash0-mcp-server/internal/config"
@@ -17,6 +19,7 @@ import (
 type Client struct {
 	baseURL    string
 	authToken  string
+	dataset    string
 	httpClient *http.Client
 	debug      bool
 }
@@ -26,6 +29,7 @@ func New(cfg *config.Config) *Client {
 	return &Client{
 		baseURL:   cfg.BaseURL,
 		authToken: cfg.AuthToken,
+		dataset:   cfg.Dataset,
 		debug:     cfg.Debug,
 		httpClient: &http.Client{
 			Timeout: 60 * time.Second,
@@ -102,7 +106,18 @@ func (c *Client) Delete(ctx context.Context, path string) *ToolResult {
 
 // Request performs an HTTP request to the Dash0 API.
 func (c *Client) Request(ctx context.Context, method, path string, body interface{}) *ToolResult {
-	url := c.baseURL + path
+	requestURL := c.baseURL + path
+
+	// Add dataset parameter if configured
+	if c.dataset != "" {
+		if method == http.MethodGet || method == http.MethodDelete {
+			// For GET/DELETE requests, add dataset as query parameter
+			requestURL = c.addDatasetQueryParam(requestURL)
+		} else if body != nil {
+			// For POST/PUT requests, inject dataset into body
+			body = c.injectDatasetIntoBody(body)
+		}
+	}
 
 	var bodyReader io.Reader
 	if body != nil {
@@ -113,7 +128,7 @@ func (c *Client) Request(ctx context.Context, method, path string, body interfac
 		bodyReader = bytes.NewReader(bodyBytes)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, url, bodyReader)
+	req, err := http.NewRequestWithContext(ctx, method, requestURL, bodyReader)
 	if err != nil {
 		return ErrorResult(http.StatusInternalServerError, fmt.Sprintf("failed to create request: %v", err))
 	}
@@ -196,4 +211,50 @@ func extractErrorDetail(result interface{}) string {
 		}
 	}
 	return ""
+}
+
+// addDatasetQueryParam adds the dataset query parameter to a URL.
+func (c *Client) addDatasetQueryParam(requestURL string) string {
+	if c.dataset == "" {
+		return requestURL
+	}
+
+	// Parse the URL to handle existing query parameters
+	if strings.Contains(requestURL, "?") {
+		return requestURL + "&dataset=" + url.QueryEscape(c.dataset)
+	}
+	return requestURL + "?dataset=" + url.QueryEscape(c.dataset)
+}
+
+// injectDatasetIntoBody injects the dataset field into a request body.
+func (c *Client) injectDatasetIntoBody(body interface{}) interface{} {
+	if c.dataset == "" {
+		return body
+	}
+
+	// Handle map[string]interface{} bodies
+	if m, ok := body.(map[string]interface{}); ok {
+		// Don't override if dataset is already set
+		if _, exists := m["dataset"]; !exists {
+			m["dataset"] = c.dataset
+		}
+		return m
+	}
+
+	// For other types, try to convert via JSON marshaling/unmarshaling
+	bodyBytes, err := json.Marshal(body)
+	if err != nil {
+		return body
+	}
+
+	var m map[string]interface{}
+	if err := json.Unmarshal(bodyBytes, &m); err != nil {
+		return body
+	}
+
+	// Don't override if dataset is already set
+	if _, exists := m["dataset"]; !exists {
+		m["dataset"] = c.dataset
+	}
+	return m
 }

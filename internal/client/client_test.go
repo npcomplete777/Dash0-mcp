@@ -413,3 +413,147 @@ func TestClient_Request_AuthorizationHeader(t *testing.T) {
 		t.Errorf("Authorization = %q, want %q", capturedAuth, "Bearer my-secret-token")
 	}
 }
+
+func TestClient_DatasetQueryParam(t *testing.T) {
+	var capturedURL string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedURL = r.URL.String()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	cfg := &config.Config{
+		BaseURL:   server.URL,
+		AuthToken: "test-token",
+		Dataset:   "my-dataset",
+	}
+	client := New(cfg)
+	client.Get(context.Background(), "/api/views")
+
+	if capturedURL != "/api/views?dataset=my-dataset" {
+		t.Errorf("URL = %q, want %q", capturedURL, "/api/views?dataset=my-dataset")
+	}
+}
+
+func TestClient_DatasetQueryParamWithExistingParams(t *testing.T) {
+	var capturedURL string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedURL = r.URL.String()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	cfg := &config.Config{
+		BaseURL:   server.URL,
+		AuthToken: "test-token",
+		Dataset:   "my-dataset",
+	}
+	client := New(cfg)
+	client.Get(context.Background(), "/api/views?other=param")
+
+	if capturedURL != "/api/views?other=param&dataset=my-dataset" {
+		t.Errorf("URL = %q, want %q", capturedURL, "/api/views?other=param&dataset=my-dataset")
+	}
+}
+
+func TestClient_DatasetInPostBody(t *testing.T) {
+	var capturedBody map[string]interface{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&capturedBody)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	cfg := &config.Config{
+		BaseURL:   server.URL,
+		AuthToken: "test-token",
+		Dataset:   "my-dataset",
+	}
+	client := New(cfg)
+	client.Post(context.Background(), "/api/spans", map[string]interface{}{
+		"sampling": map[string]string{"mode": "adaptive"},
+	})
+
+	if capturedBody["dataset"] != "my-dataset" {
+		t.Errorf("dataset = %v, want %q", capturedBody["dataset"], "my-dataset")
+	}
+	if capturedBody["sampling"] == nil {
+		t.Error("expected sampling to be preserved in body")
+	}
+}
+
+func TestClient_DatasetDoesNotOverrideExisting(t *testing.T) {
+	var capturedBody map[string]interface{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&capturedBody)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	cfg := &config.Config{
+		BaseURL:   server.URL,
+		AuthToken: "test-token",
+		Dataset:   "config-dataset",
+	}
+	client := New(cfg)
+	client.Post(context.Background(), "/api/spans", map[string]interface{}{
+		"dataset": "explicit-dataset",
+	})
+
+	if capturedBody["dataset"] != "explicit-dataset" {
+		t.Errorf("dataset = %v, want %q (should not override)", capturedBody["dataset"], "explicit-dataset")
+	}
+}
+
+func TestClient_NoDatasetWhenNotConfigured(t *testing.T) {
+	var capturedURL string
+	var capturedBody map[string]interface{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedURL = r.URL.String()
+		if r.Method == http.MethodPost {
+			json.NewDecoder(r.Body).Decode(&capturedBody)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	cfg := &config.Config{
+		BaseURL:   server.URL,
+		AuthToken: "test-token",
+		// No Dataset configured
+	}
+	client := New(cfg)
+
+	// Test GET - should not have dataset param
+	client.Get(context.Background(), "/api/views")
+	if capturedURL != "/api/views" {
+		t.Errorf("URL = %q, want %q (no dataset param)", capturedURL, "/api/views")
+	}
+
+	// Test POST - should not have dataset in body
+	client.Post(context.Background(), "/api/spans", map[string]interface{}{"data": "test"})
+	if _, exists := capturedBody["dataset"]; exists {
+		t.Errorf("dataset should not be in body when not configured")
+	}
+}
+
+func TestClient_DatasetDeleteQueryParam(t *testing.T) {
+	var capturedURL string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedURL = r.URL.String()
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	cfg := &config.Config{
+		BaseURL:   server.URL,
+		AuthToken: "test-token",
+		Dataset:   "my-dataset",
+	}
+	client := New(cfg)
+	client.Delete(context.Background(), "/api/views/123")
+
+	if capturedURL != "/api/views/123?dataset=my-dataset" {
+		t.Errorf("URL = %q, want %q", capturedURL, "/api/views/123?dataset=my-dataset")
+	}
+}
