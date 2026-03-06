@@ -3,23 +3,33 @@ package imports
 import (
 	"context"
 
-	"github.com/ajacobs/dash0-mcp-server/internal/client"
-	"github.com/ajacobs/dash0-mcp-server/internal/registry"
+	"github.com/npcomplete777/dash0-mcp/internal/client"
+	"github.com/npcomplete777/dash0-mcp/internal/registry"
 	mcp "github.com/mark3labs/mcp-go/mcp"
 )
 
-// Package provides MCP tools for Import API operations.
-type Package struct {
+const (
+	importCheckRulePath      = "/api/import/check-rule"
+	importDashboardPath      = "/api/import/dashboard"
+	importSyntheticCheckPath = "/api/import/synthetic-check"
+	importViewPath           = "/api/import/view"
+)
+
+// Compile-time interface check.
+var _ registry.ToolProvider = (*Tools)(nil)
+
+// Tools provides MCP tools for Import API operations.
+type Tools struct {
 	client *client.Client
 }
 
-// New creates a new Imports package.
-func New(c *client.Client) *Package {
-	return &Package{client: c}
+// New creates a new Imports tools instance.
+func New(c *client.Client) *Tools {
+	return &Tools{client: c}
 }
 
 // Tools returns all MCP tools in this package.
-func (p *Package) Tools() []mcp.Tool {
+func (p *Tools) Tools() []mcp.Tool {
 	return []mcp.Tool{
 		p.ImportCheckRule(),
 		p.ImportDashboard(),
@@ -29,7 +39,7 @@ func (p *Package) Tools() []mcp.Tool {
 }
 
 // Handlers returns a map of tool name to handler function.
-func (p *Package) Handlers() map[string]func(context.Context, map[string]interface{}) *client.ToolResult {
+func (p *Tools) Handlers() map[string]func(context.Context, map[string]interface{}) *client.ToolResult {
 	return map[string]func(context.Context, map[string]interface{}) *client.ToolResult{
 		"dash0_import_check_rule":     p.ImportCheckRuleHandler,
 		"dash0_import_dashboard":      p.ImportDashboardHandler,
@@ -39,7 +49,7 @@ func (p *Package) Handlers() map[string]func(context.Context, map[string]interfa
 }
 
 // ImportCheckRule returns the dash0_import_check_rule tool definition.
-func (p *Package) ImportCheckRule() mcp.Tool {
+func (p *Tools) ImportCheckRule() mcp.Tool {
 	return mcp.Tool{
 		Name:        "dash0_import_check_rule",
 		Description: "Import a check rule (alert rule) from another observability platform into Dash0. Supports importing Prometheus alert rules and other compatible formats.",
@@ -57,17 +67,17 @@ func (p *Package) ImportCheckRule() mcp.Tool {
 }
 
 // ImportCheckRuleHandler handles the dash0_import_check_rule tool.
-func (p *Package) ImportCheckRuleHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
+func (p *Tools) ImportCheckRuleHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
 	body, ok := args["body"]
 	if !ok {
 		return client.ErrorResult(400, "body is required")
 	}
 
-	return p.client.Post(ctx, "/api/import/check-rule", body)
+	return p.client.Post(ctx, importCheckRulePath, body)
 }
 
 // ImportDashboard returns the dash0_import_dashboard tool definition.
-func (p *Package) ImportDashboard() mcp.Tool {
+func (p *Tools) ImportDashboard() mcp.Tool {
 	return mcp.Tool{
 		Name:        "dash0_import_dashboard",
 		Description: "Import a dashboard from another observability platform into Dash0. Supports importing Grafana dashboards and other compatible formats.",
@@ -85,17 +95,17 @@ func (p *Package) ImportDashboard() mcp.Tool {
 }
 
 // ImportDashboardHandler handles the dash0_import_dashboard tool.
-func (p *Package) ImportDashboardHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
+func (p *Tools) ImportDashboardHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
 	body, ok := args["body"]
 	if !ok {
 		return client.ErrorResult(400, "body is required")
 	}
 
-	return p.client.Post(ctx, "/api/import/dashboard", body)
+	return p.client.Post(ctx, importDashboardPath, body)
 }
 
 // ImportSyntheticCheck returns the dash0_import_synthetic_check tool definition.
-func (p *Package) ImportSyntheticCheck() mcp.Tool {
+func (p *Tools) ImportSyntheticCheck() mcp.Tool {
 	return mcp.Tool{
 		Name:        "dash0_import_synthetic_check",
 		Description: "Import a synthetic check from another monitoring platform into Dash0. Supports importing checks from various synthetic monitoring tools.",
@@ -113,17 +123,17 @@ func (p *Package) ImportSyntheticCheck() mcp.Tool {
 }
 
 // ImportSyntheticCheckHandler handles the dash0_import_synthetic_check tool.
-func (p *Package) ImportSyntheticCheckHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
+func (p *Tools) ImportSyntheticCheckHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
 	body, ok := args["body"]
 	if !ok {
 		return client.ErrorResult(400, "body is required")
 	}
 
-	return p.client.Post(ctx, "/api/import/synthetic-check", body)
+	return p.client.Post(ctx, importSyntheticCheckPath, body)
 }
 
 // ImportView returns the dash0_import_view tool definition.
-func (p *Package) ImportView() mcp.Tool {
+func (p *Tools) ImportView() mcp.Tool {
 	return mcp.Tool{
 		Name:        "dash0_import_view",
 		Description: "Import a saved view from another observability platform into Dash0.",
@@ -141,13 +151,13 @@ func (p *Package) ImportView() mcp.Tool {
 }
 
 // ImportViewHandler handles the dash0_import_view tool.
-func (p *Package) ImportViewHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
+func (p *Tools) ImportViewHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
 	body, ok := args["body"]
 	if !ok {
 		return client.ErrorResult(400, "body is required")
 	}
 
-	return p.client.Post(ctx, "/api/import/view", body)
+	return p.client.Post(ctx, importViewPath, body)
 }
 
 // Register registers all import tools with the registry.

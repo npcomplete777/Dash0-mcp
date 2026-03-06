@@ -1,4 +1,4 @@
-module github.com/ajacobs/dash0-mcp-server
+module github.com/npcomplete777/dash0-mcp
 
 go 1.23
 

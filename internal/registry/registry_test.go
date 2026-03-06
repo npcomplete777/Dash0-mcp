@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/ajacobs/dash0-mcp-server/internal/client"
+	"github.com/npcomplete777/dash0-mcp/internal/client"
 	mcp "github.com/mark3labs/mcp-go/mcp"
 )
 

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ajacobs/dash0-mcp-server/internal/client"
+	"github.com/npcomplete777/dash0-mcp/internal/client"
 )
 
 func TestNew(t *testing.T) {

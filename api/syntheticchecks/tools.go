@@ -5,23 +5,30 @@ import (
 	"fmt"
 	"net/url"
 
-	"github.com/ajacobs/dash0-mcp-server/internal/client"
-	"github.com/ajacobs/dash0-mcp-server/internal/registry"
+	"github.com/npcomplete777/dash0-mcp/internal/client"
+	"github.com/npcomplete777/dash0-mcp/internal/registry"
 	mcp "github.com/mark3labs/mcp-go/mcp"
 )
 
-// Package provides MCP tools for Synthetic Checks API operations.
-type Package struct {
+const (
+	basePath = "/api/synthetic-checks"
+)
+
+// Compile-time interface check.
+var _ registry.ToolProvider = (*Tools)(nil)
+
+// Tools provides MCP tools for Synthetic Checks API operations.
+type Tools struct {
 	client *client.Client
 }
 
-// New creates a new Synthetic Checks package.
-func New(c *client.Client) *Package {
-	return &Package{client: c}
+// New creates a new Synthetic Checks tools instance.
+func New(c *client.Client) *Tools {
+	return &Tools{client: c}
 }
 
 // Tools returns all MCP tools in this package.
-func (p *Package) Tools() []mcp.Tool {
+func (p *Tools) Tools() []mcp.Tool {
 	return []mcp.Tool{
 		p.ListSyntheticChecks(),
 		p.GetSyntheticCheck(),
@@ -32,7 +39,7 @@ func (p *Package) Tools() []mcp.Tool {
 }
 
 // Handlers returns a map of tool name to handler function.
-func (p *Package) Handlers() map[string]func(context.Context, map[string]interface{}) *client.ToolResult {
+func (p *Tools) Handlers() map[string]func(context.Context, map[string]interface{}) *client.ToolResult {
 	return map[string]func(context.Context, map[string]interface{}) *client.ToolResult{
 		"dash0_synthetic_checks_list":   p.ListSyntheticChecksHandler,
 		"dash0_synthetic_checks_get":    p.GetSyntheticCheckHandler,
@@ -43,7 +50,7 @@ func (p *Package) Handlers() map[string]func(context.Context, map[string]interfa
 }
 
 // ListSyntheticChecks returns the dash0_synthetic_checks_list tool definition.
-func (p *Package) ListSyntheticChecks() mcp.Tool {
+func (p *Tools) ListSyntheticChecks() mcp.Tool {
 	return mcp.Tool{
 		Name:        "dash0_synthetic_checks_list",
 		Description: "List all synthetic checks in Dash0. Synthetic checks proactively monitor application availability and performance from multiple locations.",
@@ -55,12 +62,12 @@ func (p *Package) ListSyntheticChecks() mcp.Tool {
 }
 
 // ListSyntheticChecksHandler handles the dash0_synthetic_checks_list tool.
-func (p *Package) ListSyntheticChecksHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
-	return p.client.Get(ctx, "/api/synthetic-checks")
+func (p *Tools) ListSyntheticChecksHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
+	return p.client.Get(ctx, basePath)
 }
 
 // GetSyntheticCheck returns the dash0_synthetic_checks_get tool definition.
-func (p *Package) GetSyntheticCheck() mcp.Tool {
+func (p *Tools) GetSyntheticCheck() mcp.Tool {
 	return mcp.Tool{
 		Name:        "dash0_synthetic_checks_get",
 		Description: "Get a specific synthetic check by its origin or ID, including configuration and check results.",
@@ -78,18 +85,18 @@ func (p *Package) GetSyntheticCheck() mcp.Tool {
 }
 
 // GetSyntheticCheckHandler handles the dash0_synthetic_checks_get tool.
-func (p *Package) GetSyntheticCheckHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
+func (p *Tools) GetSyntheticCheckHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
 	originOrID, ok := args["origin_or_id"].(string)
 	if !ok || originOrID == "" {
 		return client.ErrorResult(400, "origin_or_id is required")
 	}
 
-	path := fmt.Sprintf("/api/synthetic-checks/%s", url.PathEscape(originOrID))
+	path := fmt.Sprintf(basePath+"/%s", url.PathEscape(originOrID))
 	return p.client.Get(ctx, path)
 }
 
 // CreateSyntheticCheck returns the dash0_synthetic_checks_create tool definition.
-func (p *Package) CreateSyntheticCheck() mcp.Tool {
+func (p *Tools) CreateSyntheticCheck() mcp.Tool {
 	return mcp.Tool{
 		Name:        "dash0_synthetic_checks_create",
 		Description: `Create a new synthetic check in Dash0 for proactive monitoring of endpoints, APIs, or browser-based workflows.
@@ -277,17 +284,17 @@ Available locations: eu-west-1, us-east-1, us-west-2, ap-southeast-1, etc.`,
 }
 
 // CreateSyntheticCheckHandler handles the dash0_synthetic_checks_create tool.
-func (p *Package) CreateSyntheticCheckHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
+func (p *Tools) CreateSyntheticCheckHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
 	body, ok := args["body"]
 	if !ok {
 		return client.ErrorResult(400, "body is required")
 	}
 
-	return p.client.Post(ctx, "/api/synthetic-checks", body)
+	return p.client.Post(ctx, basePath, body)
 }
 
 // UpdateSyntheticCheck returns the dash0_synthetic_checks_update tool definition.
-func (p *Package) UpdateSyntheticCheck() mcp.Tool {
+func (p *Tools) UpdateSyntheticCheck() mcp.Tool {
 	return mcp.Tool{
 		Name:        "dash0_synthetic_checks_update",
 		Description: `Update an existing synthetic check by its origin or ID.
@@ -333,7 +340,7 @@ The body should follow the same Dash0SyntheticCheck CRD format as create:
 }
 
 // UpdateSyntheticCheckHandler handles the dash0_synthetic_checks_update tool.
-func (p *Package) UpdateSyntheticCheckHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
+func (p *Tools) UpdateSyntheticCheckHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
 	originOrID, ok := args["origin_or_id"].(string)
 	if !ok || originOrID == "" {
 		return client.ErrorResult(400, "origin_or_id is required")
@@ -344,12 +351,12 @@ func (p *Package) UpdateSyntheticCheckHandler(ctx context.Context, args map[stri
 		return client.ErrorResult(400, "body is required")
 	}
 
-	path := fmt.Sprintf("/api/synthetic-checks/%s", url.PathEscape(originOrID))
+	path := fmt.Sprintf(basePath+"/%s", url.PathEscape(originOrID))
 	return p.client.Put(ctx, path, body)
 }
 
 // DeleteSyntheticCheck returns the dash0_synthetic_checks_delete tool definition.
-func (p *Package) DeleteSyntheticCheck() mcp.Tool {
+func (p *Tools) DeleteSyntheticCheck() mcp.Tool {
 	return mcp.Tool{
 		Name:        "dash0_synthetic_checks_delete",
 		Description: "Delete a synthetic check by its origin or ID.",
@@ -367,13 +374,13 @@ func (p *Package) DeleteSyntheticCheck() mcp.Tool {
 }
 
 // DeleteSyntheticCheckHandler handles the dash0_synthetic_checks_delete tool.
-func (p *Package) DeleteSyntheticCheckHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
+func (p *Tools) DeleteSyntheticCheckHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
 	originOrID, ok := args["origin_or_id"].(string)
 	if !ok || originOrID == "" {
 		return client.ErrorResult(400, "origin_or_id is required")
 	}
 
-	path := fmt.Sprintf("/api/synthetic-checks/%s", url.PathEscape(originOrID))
+	path := fmt.Sprintf(basePath+"/%s", url.PathEscape(originOrID))
 	return p.client.Delete(ctx, path)
 }
 

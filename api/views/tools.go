@@ -5,23 +5,30 @@ import (
 	"fmt"
 	"net/url"
 
-	"github.com/ajacobs/dash0-mcp-server/internal/client"
-	"github.com/ajacobs/dash0-mcp-server/internal/registry"
+	"github.com/npcomplete777/dash0-mcp/internal/client"
+	"github.com/npcomplete777/dash0-mcp/internal/registry"
 	mcp "github.com/mark3labs/mcp-go/mcp"
 )
 
-// Package provides MCP tools for Views API operations.
-type Package struct {
+const (
+	basePath = "/api/views"
+)
+
+// Compile-time interface check.
+var _ registry.ToolProvider = (*Tools)(nil)
+
+// Tools provides MCP tools for Views API operations.
+type Tools struct {
 	client *client.Client
 }
 
-// New creates a new Views package.
-func New(c *client.Client) *Package {
-	return &Package{client: c}
+// New creates a new Views tools instance.
+func New(c *client.Client) *Tools {
+	return &Tools{client: c}
 }
 
 // Tools returns all MCP tools in this package.
-func (p *Package) Tools() []mcp.Tool {
+func (p *Tools) Tools() []mcp.Tool {
 	return []mcp.Tool{
 		p.ListViews(),
 		p.GetView(),
@@ -32,7 +39,7 @@ func (p *Package) Tools() []mcp.Tool {
 }
 
 // Handlers returns a map of tool name to handler function.
-func (p *Package) Handlers() map[string]func(context.Context, map[string]interface{}) *client.ToolResult {
+func (p *Tools) Handlers() map[string]func(context.Context, map[string]interface{}) *client.ToolResult {
 	return map[string]func(context.Context, map[string]interface{}) *client.ToolResult{
 		"dash0_views_list":   p.ListViewsHandler,
 		"dash0_views_get":    p.GetViewHandler,
@@ -43,7 +50,7 @@ func (p *Package) Handlers() map[string]func(context.Context, map[string]interfa
 }
 
 // ListViews returns the dash0_views_list tool definition.
-func (p *Package) ListViews() mcp.Tool {
+func (p *Tools) ListViews() mcp.Tool {
 	return mcp.Tool{
 		Name:        "dash0_views_list",
 		Description: "List all saved views in Dash0. Views are saved queries and filters for logs, traces, and metrics exploration.",
@@ -55,12 +62,12 @@ func (p *Package) ListViews() mcp.Tool {
 }
 
 // ListViewsHandler handles the dash0_views_list tool.
-func (p *Package) ListViewsHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
-	return p.client.Get(ctx, "/api/views")
+func (p *Tools) ListViewsHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
+	return p.client.Get(ctx, basePath)
 }
 
 // GetView returns the dash0_views_get tool definition.
-func (p *Package) GetView() mcp.Tool {
+func (p *Tools) GetView() mcp.Tool {
 	return mcp.Tool{
 		Name:        "dash0_views_get",
 		Description: "Get a specific view by its origin or ID, including query configuration and filters.",
@@ -78,18 +85,18 @@ func (p *Package) GetView() mcp.Tool {
 }
 
 // GetViewHandler handles the dash0_views_get tool.
-func (p *Package) GetViewHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
+func (p *Tools) GetViewHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
 	originOrID, ok := args["origin_or_id"].(string)
 	if !ok || originOrID == "" {
 		return client.ErrorResult(400, "origin_or_id is required")
 	}
 
-	path := fmt.Sprintf("/api/views/%s", url.PathEscape(originOrID))
+	path := fmt.Sprintf(basePath+"/%s", url.PathEscape(originOrID))
 	return p.client.Get(ctx, path)
 }
 
 // CreateView returns the dash0_views_create tool definition.
-func (p *Package) CreateView() mcp.Tool {
+func (p *Tools) CreateView() mcp.Tool {
 	return mcp.Tool{
 		Name:        "dash0_views_create",
 		Description: `Create a new saved view in Dash0 for quick access to commonly used queries and filters.
@@ -159,17 +166,17 @@ Another example:
 }
 
 // CreateViewHandler handles the dash0_views_create tool.
-func (p *Package) CreateViewHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
+func (p *Tools) CreateViewHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
 	body, ok := args["body"]
 	if !ok {
 		return client.ErrorResult(400, "body is required")
 	}
 
-	return p.client.Post(ctx, "/api/views", body)
+	return p.client.Post(ctx, basePath, body)
 }
 
 // UpdateView returns the dash0_views_update tool definition.
-func (p *Package) UpdateView() mcp.Tool {
+func (p *Tools) UpdateView() mcp.Tool {
 	return mcp.Tool{
 		Name:        "dash0_views_update",
 		Description: `Update an existing view by its origin or ID.
@@ -213,7 +220,7 @@ The body should follow the same Dash0View CRD format as create:
 }
 
 // UpdateViewHandler handles the dash0_views_update tool.
-func (p *Package) UpdateViewHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
+func (p *Tools) UpdateViewHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
 	originOrID, ok := args["origin_or_id"].(string)
 	if !ok || originOrID == "" {
 		return client.ErrorResult(400, "origin_or_id is required")
@@ -224,12 +231,12 @@ func (p *Package) UpdateViewHandler(ctx context.Context, args map[string]interfa
 		return client.ErrorResult(400, "body is required")
 	}
 
-	path := fmt.Sprintf("/api/views/%s", url.PathEscape(originOrID))
+	path := fmt.Sprintf(basePath+"/%s", url.PathEscape(originOrID))
 	return p.client.Put(ctx, path, body)
 }
 
 // DeleteView returns the dash0_views_delete tool definition.
-func (p *Package) DeleteView() mcp.Tool {
+func (p *Tools) DeleteView() mcp.Tool {
 	return mcp.Tool{
 		Name:        "dash0_views_delete",
 		Description: "Delete a view by its origin or ID.",
@@ -247,13 +254,13 @@ func (p *Package) DeleteView() mcp.Tool {
 }
 
 // DeleteViewHandler handles the dash0_views_delete tool.
-func (p *Package) DeleteViewHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
+func (p *Tools) DeleteViewHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
 	originOrID, ok := args["origin_or_id"].(string)
 	if !ok || originOrID == "" {
 		return client.ErrorResult(400, "origin_or_id is required")
 	}
 
-	path := fmt.Sprintf("/api/views/%s", url.PathEscape(originOrID))
+	path := fmt.Sprintf(basePath+"/%s", url.PathEscape(originOrID))
 	return p.client.Delete(ctx, path)
 }
 

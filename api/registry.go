@@ -2,17 +2,17 @@
 package api
 
 import (
-	"github.com/ajacobs/dash0-mcp-server/internal/client"
-	"github.com/ajacobs/dash0-mcp-server/internal/registry"
+	"github.com/npcomplete777/dash0-mcp/internal/client"
+	"github.com/npcomplete777/dash0-mcp/internal/registry"
 
-	"github.com/ajacobs/dash0-mcp-server/api/alerting"
-	"github.com/ajacobs/dash0-mcp-server/api/dashboards"
-	"github.com/ajacobs/dash0-mcp-server/api/imports"
-	"github.com/ajacobs/dash0-mcp-server/api/logs"
-	"github.com/ajacobs/dash0-mcp-server/api/samplingrules"
-	"github.com/ajacobs/dash0-mcp-server/api/spans"
-	"github.com/ajacobs/dash0-mcp-server/api/syntheticchecks"
-	"github.com/ajacobs/dash0-mcp-server/api/views"
+	"github.com/npcomplete777/dash0-mcp/api/alerting"
+	"github.com/npcomplete777/dash0-mcp/api/dashboards"
+	"github.com/npcomplete777/dash0-mcp/api/imports"
+	"github.com/npcomplete777/dash0-mcp/api/logs"
+	"github.com/npcomplete777/dash0-mcp/api/samplingrules"
+	"github.com/npcomplete777/dash0-mcp/api/spans"
+	"github.com/npcomplete777/dash0-mcp/api/syntheticchecks"
+	"github.com/npcomplete777/dash0-mcp/api/views"
 )
 
 // RegisterAllTools registers all tool handlers with the registry.

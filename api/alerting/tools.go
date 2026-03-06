@@ -5,23 +5,30 @@ import (
 	"fmt"
 	"net/url"
 
-	"github.com/ajacobs/dash0-mcp-server/internal/client"
-	"github.com/ajacobs/dash0-mcp-server/internal/registry"
+	"github.com/npcomplete777/dash0-mcp/internal/client"
+	"github.com/npcomplete777/dash0-mcp/internal/registry"
 	mcp "github.com/mark3labs/mcp-go/mcp"
 )
 
-// Package provides MCP tools for Alerting API operations.
-type Package struct {
+const (
+	basePath = "/api/alerting/check-rules"
+)
+
+// Compile-time interface check.
+var _ registry.ToolProvider = (*Tools)(nil)
+
+// Tools provides MCP tools for Alerting API operations.
+type Tools struct {
 	client *client.Client
 }
 
-// New creates a new Alerting package.
-func New(c *client.Client) *Package {
-	return &Package{client: c}
+// New creates a new Alerting tools instance.
+func New(c *client.Client) *Tools {
+	return &Tools{client: c}
 }
 
 // Tools returns all MCP tools in this package.
-func (p *Package) Tools() []mcp.Tool {
+func (p *Tools) Tools() []mcp.Tool {
 	return []mcp.Tool{
 		p.ListCheckRules(),
 		p.GetCheckRule(),
@@ -32,7 +39,7 @@ func (p *Package) Tools() []mcp.Tool {
 }
 
 // Handlers returns a map of tool name to handler function.
-func (p *Package) Handlers() map[string]func(context.Context, map[string]interface{}) *client.ToolResult {
+func (p *Tools) Handlers() map[string]func(context.Context, map[string]interface{}) *client.ToolResult {
 	return map[string]func(context.Context, map[string]interface{}) *client.ToolResult{
 		"dash0_alerting_check_rules_list":   p.ListCheckRulesHandler,
 		"dash0_alerting_check_rules_get":    p.GetCheckRuleHandler,
@@ -43,7 +50,7 @@ func (p *Package) Handlers() map[string]func(context.Context, map[string]interfa
 }
 
 // ListCheckRules returns the dash0_alerting_check_rules_list tool definition.
-func (p *Package) ListCheckRules() mcp.Tool {
+func (p *Tools) ListCheckRules() mcp.Tool {
 	return mcp.Tool{
 		Name:        "dash0_alerting_check_rules_list",
 		Description: "List all check rules (Prometheus-style alert rules) configured in Dash0.",
@@ -55,12 +62,12 @@ func (p *Package) ListCheckRules() mcp.Tool {
 }
 
 // ListCheckRulesHandler handles the dash0_alerting_check_rules_list tool.
-func (p *Package) ListCheckRulesHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
-	return p.client.Get(ctx, "/api/alerting/check-rules")
+func (p *Tools) ListCheckRulesHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
+	return p.client.Get(ctx, basePath)
 }
 
 // GetCheckRule returns the dash0_alerting_check_rules_get tool definition.
-func (p *Package) GetCheckRule() mcp.Tool {
+func (p *Tools) GetCheckRule() mcp.Tool {
 	return mcp.Tool{
 		Name:        "dash0_alerting_check_rules_get",
 		Description: "Get a specific check rule by its origin or ID.",
@@ -78,18 +85,18 @@ func (p *Package) GetCheckRule() mcp.Tool {
 }
 
 // GetCheckRuleHandler handles the dash0_alerting_check_rules_get tool.
-func (p *Package) GetCheckRuleHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
+func (p *Tools) GetCheckRuleHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
 	originOrID, ok := args["origin_or_id"].(string)
 	if !ok || originOrID == "" {
 		return client.ErrorResult(400, "origin_or_id is required")
 	}
 
-	path := fmt.Sprintf("/api/alerting/check-rules/%s", url.PathEscape(originOrID))
+	path := fmt.Sprintf(basePath+"/%s", url.PathEscape(originOrID))
 	return p.client.Get(ctx, path)
 }
 
 // CreateCheckRule returns the dash0_alerting_check_rules_create tool definition.
-func (p *Package) CreateCheckRule() mcp.Tool {
+func (p *Tools) CreateCheckRule() mcp.Tool {
 	return mcp.Tool{
 		Name:        "dash0_alerting_check_rules_create",
 		Description: `Create a new check rule (Prometheus-style alert rule) in Dash0.
@@ -164,17 +171,17 @@ Example body:
 }
 
 // CreateCheckRuleHandler handles the dash0_alerting_check_rules_create tool.
-func (p *Package) CreateCheckRuleHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
+func (p *Tools) CreateCheckRuleHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
 	body, ok := args["body"]
 	if !ok {
 		return client.ErrorResult(400, "body is required")
 	}
 
-	return p.client.Post(ctx, "/api/alerting/check-rules", body)
+	return p.client.Post(ctx, basePath, body)
 }
 
 // UpdateCheckRule returns the dash0_alerting_check_rules_update tool definition.
-func (p *Package) UpdateCheckRule() mcp.Tool {
+func (p *Tools) UpdateCheckRule() mcp.Tool {
 	return mcp.Tool{
 		Name:        "dash0_alerting_check_rules_update",
 		Description: `Update an existing check rule by its origin or ID.
@@ -233,7 +240,7 @@ The body should follow the same format as create:
 }
 
 // UpdateCheckRuleHandler handles the dash0_alerting_check_rules_update tool.
-func (p *Package) UpdateCheckRuleHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
+func (p *Tools) UpdateCheckRuleHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
 	originOrID, ok := args["origin_or_id"].(string)
 	if !ok || originOrID == "" {
 		return client.ErrorResult(400, "origin_or_id is required")
@@ -244,12 +251,12 @@ func (p *Package) UpdateCheckRuleHandler(ctx context.Context, args map[string]in
 		return client.ErrorResult(400, "body is required")
 	}
 
-	path := fmt.Sprintf("/api/alerting/check-rules/%s", url.PathEscape(originOrID))
+	path := fmt.Sprintf(basePath+"/%s", url.PathEscape(originOrID))
 	return p.client.Put(ctx, path, body)
 }
 
 // DeleteCheckRule returns the dash0_alerting_check_rules_delete tool definition.
-func (p *Package) DeleteCheckRule() mcp.Tool {
+func (p *Tools) DeleteCheckRule() mcp.Tool {
 	return mcp.Tool{
 		Name:        "dash0_alerting_check_rules_delete",
 		Description: "Delete a check rule by its origin or ID.",
@@ -267,13 +274,13 @@ func (p *Package) DeleteCheckRule() mcp.Tool {
 }
 
 // DeleteCheckRuleHandler handles the dash0_alerting_check_rules_delete tool.
-func (p *Package) DeleteCheckRuleHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
+func (p *Tools) DeleteCheckRuleHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
 	originOrID, ok := args["origin_or_id"].(string)
 	if !ok || originOrID == "" {
 		return client.ErrorResult(400, "origin_or_id is required")
 	}
 
-	path := fmt.Sprintf("/api/alerting/check-rules/%s", url.PathEscape(originOrID))
+	path := fmt.Sprintf(basePath+"/%s", url.PathEscape(originOrID))
 	return p.client.Delete(ctx, path)
 }
 

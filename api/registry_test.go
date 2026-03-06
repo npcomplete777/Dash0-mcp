@@ -4,64 +4,43 @@ import (
 	"context"
 	"testing"
 
-	"github.com/ajacobs/dash0-mcp-server/internal/client"
-	"github.com/ajacobs/dash0-mcp-server/internal/config"
+	"github.com/npcomplete777/dash0-mcp/internal/client"
+	"github.com/npcomplete777/dash0-mcp/internal/config"
+	"github.com/npcomplete777/dash0-mcp/internal/registry"
 )
 
-func TestNewRegistry(t *testing.T) {
+func setupRegistry(t *testing.T) *registry.Registry {
+	t.Helper()
 	cfg := &config.Config{
 		BaseURL:   "https://api.example.com",
 		AuthToken: "test-token",
 	}
 	c := client.New(cfg)
-
-	registry := NewRegistry(c)
-
-	if registry == nil {
-		t.Fatal("NewRegistry returned nil")
-	}
-
-	if registry.handlers == nil {
-		t.Error("handlers map is nil")
-	}
-
-	if registry.tools == nil {
-		t.Error("tools slice is nil")
-	}
+	reg := registry.New(nil)
+	RegisterAllTools(reg, c)
+	return reg
 }
 
 func TestRegistryToolCount(t *testing.T) {
-	cfg := &config.Config{
-		BaseURL:   "https://api.example.com",
-		AuthToken: "test-token",
-	}
-	c := client.New(cfg)
+	reg := setupRegistry(t)
 
-	registry := NewRegistry(c)
-
-	count := registry.ToolCount()
+	count := reg.ToolCount()
 	if count == 0 {
 		t.Error("ToolCount should be greater than 0")
 	}
 
-	// Verify count matches length of tools
-	if count != len(registry.AllTools()) {
-		t.Errorf("ToolCount() = %d, but AllTools() has %d items", count, len(registry.AllTools()))
+	// Verify count matches length of enabled tools
+	if count != len(reg.GetEnabledTools()) {
+		t.Errorf("ToolCount() = %d, but GetEnabledTools() has %d items", count, len(reg.GetEnabledTools()))
 	}
 }
 
 func TestRegistryAllTools(t *testing.T) {
-	cfg := &config.Config{
-		BaseURL:   "https://api.example.com",
-		AuthToken: "test-token",
-	}
-	c := client.New(cfg)
-
-	registry := NewRegistry(c)
-	tools := registry.AllTools()
+	reg := setupRegistry(t)
+	tools := reg.GetEnabledTools()
 
 	if len(tools) == 0 {
-		t.Error("AllTools should return at least one tool")
+		t.Error("GetEnabledTools should return at least one tool")
 	}
 
 	// Verify all tools have names
@@ -73,13 +52,7 @@ func TestRegistryAllTools(t *testing.T) {
 }
 
 func TestRegistryHasTool(t *testing.T) {
-	cfg := &config.Config{
-		BaseURL:   "https://api.example.com",
-		AuthToken: "test-token",
-	}
-	c := client.New(cfg)
-
-	registry := NewRegistry(c)
+	reg := setupRegistry(t)
 
 	// Test known tools exist
 	knownTools := []string{
@@ -102,62 +75,28 @@ func TestRegistryHasTool(t *testing.T) {
 	}
 
 	for _, toolName := range knownTools {
-		if !registry.HasTool(toolName) {
-			t.Errorf("HasTool(%q) = false, want true", toolName)
+		if reg.GetHandler(toolName) == nil {
+			t.Errorf("GetHandler(%q) = nil, want non-nil", toolName)
 		}
 	}
 
 	// Test unknown tool doesn't exist
-	if registry.HasTool("nonexistent_tool") {
-		t.Error("HasTool(nonexistent_tool) = true, want false")
+	if reg.GetHandler("nonexistent_tool") != nil {
+		t.Error("GetHandler(nonexistent_tool) should return nil")
 	}
 }
 
-func TestRegistryGetHandler(t *testing.T) {
-	cfg := &config.Config{
-		BaseURL:   "https://api.example.com",
-		AuthToken: "test-token",
-	}
-	c := client.New(cfg)
-
-	registry := NewRegistry(c)
-
-	// Test getting handler for known tool
-	handler, ok := registry.GetHandler("dash0_dashboards_list")
-	if !ok {
-		t.Error("GetHandler(dash0_dashboards_list) returned false")
-	}
-	if handler == nil {
-		t.Error("GetHandler(dash0_dashboards_list) returned nil handler")
-	}
-
-	// Test getting handler for unknown tool
-	handler, ok = registry.GetHandler("nonexistent_tool")
-	if ok {
-		t.Error("GetHandler(nonexistent_tool) returned true")
-	}
-	if handler != nil {
-		t.Error("GetHandler(nonexistent_tool) should return nil handler")
-	}
-}
-
-func TestRegistryHandleTool(t *testing.T) {
-	cfg := &config.Config{
-		BaseURL:   "https://api.example.com",
-		AuthToken: "test-token",
-	}
-	c := client.New(cfg)
-
-	registry := NewRegistry(c)
+func TestRegistryCallUnknownTool(t *testing.T) {
+	reg := setupRegistry(t)
 	ctx := context.Background()
 
-	// Test handling unknown tool
-	result := registry.HandleTool(ctx, "nonexistent_tool", nil)
+	// Test calling unknown tool
+	result := reg.Call(ctx, "nonexistent_tool", nil)
 	if result.Success {
-		t.Error("HandleTool for nonexistent tool should return error")
+		t.Error("Call for nonexistent tool should return error")
 	}
 	if result.Error == nil {
-		t.Error("HandleTool for nonexistent tool should have error")
+		t.Error("Call for nonexistent tool should have error")
 	}
 	if result.Error.StatusCode != 404 {
 		t.Errorf("StatusCode = %d, want 404", result.Error.StatusCode)
@@ -165,48 +104,36 @@ func TestRegistryHandleTool(t *testing.T) {
 }
 
 func TestRegistryToolNames(t *testing.T) {
-	cfg := &config.Config{
-		BaseURL:   "https://api.example.com",
-		AuthToken: "test-token",
-	}
-	c := client.New(cfg)
-
-	registry := NewRegistry(c)
-	names := registry.ToolNames()
+	reg := setupRegistry(t)
+	names := reg.AllToolNames()
 
 	if len(names) == 0 {
-		t.Error("ToolNames should return at least one name")
+		t.Error("AllToolNames should return at least one name")
 	}
 
 	// Verify count matches
-	if len(names) != registry.ToolCount() {
-		t.Errorf("ToolNames() returned %d names, but ToolCount() = %d", len(names), registry.ToolCount())
+	if len(names) != reg.ToolCount() {
+		t.Errorf("AllToolNames() returned %d names, but ToolCount() = %d", len(names), reg.ToolCount())
 	}
 
 	// Verify all names are non-empty
 	for i, name := range names {
 		if name == "" {
-			t.Errorf("ToolNames()[%d] is empty", i)
+			t.Errorf("AllToolNames()[%d] is empty", i)
 		}
 	}
 
 	// Verify each name has a handler
 	for _, name := range names {
-		if !registry.HasTool(name) {
-			t.Errorf("ToolNames includes %q but HasTool returns false", name)
+		if reg.GetHandler(name) == nil {
+			t.Errorf("AllToolNames includes %q but GetHandler returns nil", name)
 		}
 	}
 }
 
 func TestRegistryToolsHaveDescriptions(t *testing.T) {
-	cfg := &config.Config{
-		BaseURL:   "https://api.example.com",
-		AuthToken: "test-token",
-	}
-	c := client.New(cfg)
-
-	registry := NewRegistry(c)
-	tools := registry.AllTools()
+	reg := setupRegistry(t)
+	tools := reg.GetEnabledTools()
 
 	for _, tool := range tools {
 		if tool.Description == "" {
@@ -216,14 +143,8 @@ func TestRegistryToolsHaveDescriptions(t *testing.T) {
 }
 
 func TestRegistryToolsHaveInputSchema(t *testing.T) {
-	cfg := &config.Config{
-		BaseURL:   "https://api.example.com",
-		AuthToken: "test-token",
-	}
-	c := client.New(cfg)
-
-	registry := NewRegistry(c)
-	tools := registry.AllTools()
+	reg := setupRegistry(t)
+	tools := reg.GetEnabledTools()
 
 	for _, tool := range tools {
 		if tool.InputSchema.Type == "" {
@@ -236,13 +157,7 @@ func TestRegistryToolsHaveInputSchema(t *testing.T) {
 }
 
 func TestRegistryExpectedToolCount(t *testing.T) {
-	cfg := &config.Config{
-		BaseURL:   "https://api.example.com",
-		AuthToken: "test-token",
-	}
-	c := client.New(cfg)
-
-	registry := NewRegistry(c)
+	reg := setupRegistry(t)
 
 	// Count expected tools:
 	// logs: 2 (send, query)
@@ -256,27 +171,21 @@ func TestRegistryExpectedToolCount(t *testing.T) {
 	// Total: 2 + 2 + 5 + 5 + 5 + 5 + 5 + 4 = 33
 	expectedCount := 33
 
-	actualCount := registry.ToolCount()
+	actualCount := reg.ToolCount()
 	if actualCount != expectedCount {
 		t.Errorf("ToolCount() = %d, want %d", actualCount, expectedCount)
 
 		// Print all tool names for debugging
 		t.Log("Registered tools:")
-		for _, name := range registry.ToolNames() {
+		for _, name := range reg.AllToolNames() {
 			t.Logf("  - %s", name)
 		}
 	}
 }
 
 func TestRegistryToolNamingConvention(t *testing.T) {
-	cfg := &config.Config{
-		BaseURL:   "https://api.example.com",
-		AuthToken: "test-token",
-	}
-	c := client.New(cfg)
-
-	registry := NewRegistry(c)
-	tools := registry.AllTools()
+	reg := setupRegistry(t)
+	tools := reg.GetEnabledTools()
 
 	for _, tool := range tools {
 		// All tools should start with "dash0_"

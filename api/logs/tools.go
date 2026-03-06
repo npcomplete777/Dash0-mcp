@@ -6,23 +6,31 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ajacobs/dash0-mcp-server/internal/client"
-	"github.com/ajacobs/dash0-mcp-server/internal/registry"
+	"github.com/npcomplete777/dash0-mcp/internal/client"
+	"github.com/npcomplete777/dash0-mcp/internal/otlp"
+	"github.com/npcomplete777/dash0-mcp/internal/registry"
 	mcp "github.com/mark3labs/mcp-go/mcp"
 )
 
-// Package provides MCP tools for Logs API operations.
-type Package struct {
+const (
+	basePath = "/api/logs"
+)
+
+// Compile-time interface check.
+var _ registry.ToolProvider = (*Tools)(nil)
+
+// Tools provides MCP tools for Logs API operations.
+type Tools struct {
 	client *client.Client
 }
 
-// New creates a new Logs package.
-func New(c *client.Client) *Package {
-	return &Package{client: c}
+// New creates a new Logs tools instance.
+func New(c *client.Client) *Tools {
+	return &Tools{client: c}
 }
 
 // Tools returns all MCP tools in this package.
-func (p *Package) Tools() []mcp.Tool {
+func (p *Tools) Tools() []mcp.Tool {
 	return []mcp.Tool{
 		p.PostLogs(),
 		p.QueryLogs(),
@@ -30,7 +38,7 @@ func (p *Package) Tools() []mcp.Tool {
 }
 
 // Handlers returns a map of tool name to handler function.
-func (p *Package) Handlers() map[string]func(context.Context, map[string]interface{}) *client.ToolResult {
+func (p *Tools) Handlers() map[string]func(context.Context, map[string]interface{}) *client.ToolResult {
 	return map[string]func(context.Context, map[string]interface{}) *client.ToolResult{
 		"dash0_logs_send":  p.PostLogsHandler,
 		"dash0_logs_query": p.QueryLogsHandler,
@@ -38,7 +46,7 @@ func (p *Package) Handlers() map[string]func(context.Context, map[string]interfa
 }
 
 // PostLogs returns the dash0_logs_send tool definition.
-func (p *Package) PostLogs() mcp.Tool {
+func (p *Tools) PostLogs() mcp.Tool {
 	return mcp.Tool{
 		Name:        "dash0_logs_send",
 		Description: "Send OTLP log records to Dash0. Accepts log data in OTLP JSON format for ingestion into the Dash0 observability platform.",
@@ -56,17 +64,17 @@ func (p *Package) PostLogs() mcp.Tool {
 }
 
 // PostLogsHandler handles the dash0_logs_send tool.
-func (p *Package) PostLogsHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
+func (p *Tools) PostLogsHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
 	body, ok := args["body"]
 	if !ok {
 		return client.ErrorResult(400, "body is required")
 	}
 
-	return p.client.Post(ctx, "/api/logs", body)
+	return p.client.Post(ctx, basePath, body)
 }
 
 // QueryLogs returns the dash0_logs_query tool definition.
-func (p *Package) QueryLogs() mcp.Tool {
+func (p *Tools) QueryLogs() mcp.Tool {
 	return mcp.Tool{
 		Name: "dash0_logs_query",
 		Description: `Query logs from Dash0 with filtering by service and time range.
@@ -109,33 +117,15 @@ Example queries:
 	}
 }
 
-// AttributeFilter represents a filter condition for log queries.
-type AttributeFilter struct {
-	Key      string                `json:"key"`
-	Operator string                `json:"operator"`
-	Value    *AttributeFilterValue `json:"value,omitempty"`
-}
-
-// AttributeFilterValue represents the value in a filter condition.
-type AttributeFilterValue struct {
-	StringValue *string `json:"stringValue,omitempty"`
-	IntValue    *string `json:"intValue,omitempty"`
-	BoolValue   *bool   `json:"boolValue,omitempty"`
-}
-
-// TimeRange represents a time range for queries.
-type TimeRange struct {
-	From string `json:"from"`
-	To   string `json:"to"`
-}
-
-// Pagination represents pagination settings.
-type Pagination struct {
-	Limit int `json:"limit,omitempty"`
-}
+// Type aliases for shared OTLP types.
+type AttributeFilter = otlp.AttributeFilter
+type AttributeFilterValue = otlp.AttributeFilterValue
+type TimeRange = otlp.TimeRange
+type Pagination = otlp.Pagination
 
 // QueryLogsRequest represents the request body for querying logs.
 type QueryLogsRequest struct {
+	Dataset    string            `json:"dataset,omitempty"`
 	TimeRange  TimeRange         `json:"timeRange"`
 	Filter     []AttributeFilter `json:"filter,omitempty"`
 	Pagination Pagination        `json:"pagination,omitempty"`
@@ -164,40 +154,54 @@ var severityOrder = map[string]int{
 }
 
 // QueryLogsHandler handles the dash0_logs_query tool.
-func (p *Package) QueryLogsHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
+func (p *Tools) QueryLogsHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
 	// Build filters
 	var filters []AttributeFilter
 
-	if serviceName, ok := args["service_name"].(string); ok && serviceName != "" {
-		filters = append(filters, AttributeFilter{
-			Key:      "service.name",
-			Operator: "is",
-			Value:    &AttributeFilterValue{StringValue: &serviceName},
-		})
+	if serviceName, ok := args["service_name"].(string); ok {
+		serviceName = strings.TrimSpace(serviceName)
+		if serviceName != "" {
+			filters = append(filters, AttributeFilter{
+				Key:      "service.name",
+				Operator: "is",
+				Value:    &AttributeFilterValue{StringValue: &serviceName},
+			})
+		}
 	}
 
 	// Calculate time range
 	now := time.Now().UTC()
 	minutes := 60
-	if m, ok := args["time_range_minutes"].(float64); ok && m > 0 {
-		minutes = int(m)
-		if minutes > 1440 {
-			minutes = 1440 // Max 24 hours
+	if m, ok := args["time_range_minutes"].(float64); ok {
+		if m < 0 {
+			return client.ErrorResult(400, "time_range_minutes must not be negative")
+		}
+		if m > 0 {
+			minutes = int(m)
+			if minutes > 1440 {
+				minutes = 1440 // Max 24 hours
+			}
 		}
 	}
 	from := now.Add(-time.Duration(minutes) * time.Minute)
 
 	// Set limit (fetch more for client-side filtering)
 	limit := 100
-	if l, ok := args["limit"].(float64); ok && l > 0 {
-		limit = int(l)
-		if limit > 500 {
-			limit = 500
+	if l, ok := args["limit"].(float64); ok {
+		if l < 0 {
+			return client.ErrorResult(400, "limit must not be negative")
+		}
+		if l > 0 {
+			limit = int(l)
+			if limit > 500 {
+				limit = 500
+			}
 		}
 	}
 
 	// Build request
 	req := QueryLogsRequest{
+		Dataset: p.client.GetDataset(),
 		TimeRange: TimeRange{
 			From: from.Format(time.RFC3339),
 			To:   now.Format(time.RFC3339),
@@ -207,7 +211,7 @@ func (p *Package) QueryLogsHandler(ctx context.Context, args map[string]interfac
 	}
 
 	// Execute query
-	result := p.client.Post(ctx, "/api/logs", req)
+	result := p.client.Post(ctx, basePath, req)
 	if !result.Success {
 		return result
 	}
@@ -357,31 +361,7 @@ func flattenLogsResponse(data interface{}) []FlatLog {
 
 // extractServiceName gets service.name from resource attributes.
 func extractServiceName(rlMap map[string]interface{}) string {
-	resource, ok := rlMap["resource"].(map[string]interface{})
-	if !ok {
-		return ""
-	}
-
-	attrs, ok := resource["attributes"].([]interface{})
-	if !ok {
-		return ""
-	}
-
-	for _, attr := range attrs {
-		attrMap, ok := attr.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		if key, ok := attrMap["key"].(string); ok && key == "service.name" {
-			if value, ok := attrMap["value"].(map[string]interface{}); ok {
-				if strVal, ok := value["stringValue"].(string); ok {
-					return strVal
-				}
-			}
-		}
-	}
-
-	return ""
+	return otlp.ExtractServiceName(rlMap)
 }
 
 // extractLogAttributes extracts commonly used attributes from a log record.

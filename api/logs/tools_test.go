@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ajacobs/dash0-mcp-server/internal/client"
+	"github.com/npcomplete777/dash0-mcp/internal/client"
 )
 
-func TestPackage_Tools(t *testing.T) {
+func TestTools_Tools(t *testing.T) {
 	c := client.NewWithBaseURL("http://example.com", "test-token")
 	pkg := New(c)
 
@@ -40,7 +40,7 @@ func TestPackage_Tools(t *testing.T) {
 	}
 }
 
-func TestPackage_Handlers(t *testing.T) {
+func TestTools_Handlers(t *testing.T) {
 	c := client.NewWithBaseURL("http://example.com", "test-token")
 	pkg := New(c)
 

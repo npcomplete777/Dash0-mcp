@@ -5,23 +5,30 @@ import (
 	"fmt"
 	"net/url"
 
-	"github.com/ajacobs/dash0-mcp-server/internal/client"
-	"github.com/ajacobs/dash0-mcp-server/internal/registry"
+	"github.com/npcomplete777/dash0-mcp/internal/client"
+	"github.com/npcomplete777/dash0-mcp/internal/registry"
 	mcp "github.com/mark3labs/mcp-go/mcp"
 )
 
-// Package provides MCP tools for Dashboards API operations.
-type Package struct {
+const (
+	basePath = "/api/dashboards"
+)
+
+// Compile-time interface check.
+var _ registry.ToolProvider = (*Tools)(nil)
+
+// Tools provides MCP tools for Dashboards API operations.
+type Tools struct {
 	client *client.Client
 }
 
-// New creates a new Dashboards package.
-func New(c *client.Client) *Package {
-	return &Package{client: c}
+// New creates a new Dashboards tools instance.
+func New(c *client.Client) *Tools {
+	return &Tools{client: c}
 }
 
 // Tools returns all MCP tools in this package.
-func (p *Package) Tools() []mcp.Tool {
+func (p *Tools) Tools() []mcp.Tool {
 	return []mcp.Tool{
 		p.ListDashboards(),
 		p.GetDashboard(),
@@ -32,7 +39,7 @@ func (p *Package) Tools() []mcp.Tool {
 }
 
 // Handlers returns a map of tool name to handler function.
-func (p *Package) Handlers() map[string]func(context.Context, map[string]interface{}) *client.ToolResult {
+func (p *Tools) Handlers() map[string]func(context.Context, map[string]interface{}) *client.ToolResult {
 	return map[string]func(context.Context, map[string]interface{}) *client.ToolResult{
 		"dash0_dashboards_list":   p.ListDashboardsHandler,
 		"dash0_dashboards_get":    p.GetDashboardHandler,
@@ -43,7 +50,7 @@ func (p *Package) Handlers() map[string]func(context.Context, map[string]interfa
 }
 
 // ListDashboards returns the dash0_dashboards_list tool definition.
-func (p *Package) ListDashboards() mcp.Tool {
+func (p *Tools) ListDashboards() mcp.Tool {
 	return mcp.Tool{
 		Name:        "dash0_dashboards_list",
 		Description: "List all dashboards in Dash0. Returns dashboard metadata including names, IDs, and modification times.",
@@ -55,12 +62,12 @@ func (p *Package) ListDashboards() mcp.Tool {
 }
 
 // ListDashboardsHandler handles the dash0_dashboards_list tool.
-func (p *Package) ListDashboardsHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
-	return p.client.Get(ctx, "/api/dashboards")
+func (p *Tools) ListDashboardsHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
+	return p.client.Get(ctx, basePath)
 }
 
 // GetDashboard returns the dash0_dashboards_get tool definition.
-func (p *Package) GetDashboard() mcp.Tool {
+func (p *Tools) GetDashboard() mcp.Tool {
 	return mcp.Tool{
 		Name:        "dash0_dashboards_get",
 		Description: "Get a specific dashboard by its origin or ID, including all panels and configuration.",
@@ -78,18 +85,18 @@ func (p *Package) GetDashboard() mcp.Tool {
 }
 
 // GetDashboardHandler handles the dash0_dashboards_get tool.
-func (p *Package) GetDashboardHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
+func (p *Tools) GetDashboardHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
 	originOrID, ok := args["origin_or_id"].(string)
 	if !ok || originOrID == "" {
 		return client.ErrorResult(400, "origin_or_id is required")
 	}
 
-	path := fmt.Sprintf("/api/dashboards/%s", url.PathEscape(originOrID))
+	path := fmt.Sprintf(basePath+"/%s", url.PathEscape(originOrID))
 	return p.client.Get(ctx, path)
 }
 
 // CreateDashboard returns the dash0_dashboards_create tool definition.
-func (p *Package) CreateDashboard() mcp.Tool {
+func (p *Tools) CreateDashboard() mcp.Tool {
 	return mcp.Tool{
 		Name:        "dash0_dashboards_create",
 		Description: `Create a new dashboard in Dash0 with panels for visualizing metrics, logs, and traces.
@@ -196,17 +203,17 @@ With panels:
 }
 
 // CreateDashboardHandler handles the dash0_dashboards_create tool.
-func (p *Package) CreateDashboardHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
+func (p *Tools) CreateDashboardHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
 	body, ok := args["body"]
 	if !ok {
 		return client.ErrorResult(400, "body is required")
 	}
 
-	return p.client.Post(ctx, "/api/dashboards", body)
+	return p.client.Post(ctx, basePath, body)
 }
 
 // UpdateDashboard returns the dash0_dashboards_update tool definition.
-func (p *Package) UpdateDashboard() mcp.Tool {
+func (p *Tools) UpdateDashboard() mcp.Tool {
 	return mcp.Tool{
 		Name:        "dash0_dashboards_update",
 		Description: `Update an existing dashboard by its origin or ID.
@@ -253,7 +260,7 @@ The body should follow the same Perses CRD format as create:
 }
 
 // UpdateDashboardHandler handles the dash0_dashboards_update tool.
-func (p *Package) UpdateDashboardHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
+func (p *Tools) UpdateDashboardHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
 	originOrID, ok := args["origin_or_id"].(string)
 	if !ok || originOrID == "" {
 		return client.ErrorResult(400, "origin_or_id is required")
@@ -264,12 +271,12 @@ func (p *Package) UpdateDashboardHandler(ctx context.Context, args map[string]in
 		return client.ErrorResult(400, "body is required")
 	}
 
-	path := fmt.Sprintf("/api/dashboards/%s", url.PathEscape(originOrID))
+	path := fmt.Sprintf(basePath+"/%s", url.PathEscape(originOrID))
 	return p.client.Put(ctx, path, body)
 }
 
 // DeleteDashboard returns the dash0_dashboards_delete tool definition.
-func (p *Package) DeleteDashboard() mcp.Tool {
+func (p *Tools) DeleteDashboard() mcp.Tool {
 	return mcp.Tool{
 		Name:        "dash0_dashboards_delete",
 		Description: "Delete a dashboard by its origin or ID.",
@@ -287,13 +294,13 @@ func (p *Package) DeleteDashboard() mcp.Tool {
 }
 
 // DeleteDashboardHandler handles the dash0_dashboards_delete tool.
-func (p *Package) DeleteDashboardHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
+func (p *Tools) DeleteDashboardHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
 	originOrID, ok := args["origin_or_id"].(string)
 	if !ok || originOrID == "" {
 		return client.ErrorResult(400, "origin_or_id is required")
 	}
 
-	path := fmt.Sprintf("/api/dashboards/%s", url.PathEscape(originOrID))
+	path := fmt.Sprintf(basePath+"/%s", url.PathEscape(originOrID))
 	return p.client.Delete(ctx, path)
 }
 

@@ -9,10 +9,11 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
-	"github.com/ajacobs/dash0-mcp-server/internal/config"
+	"github.com/npcomplete777/dash0-mcp/internal/config"
 )
 
 // Client handles authenticated HTTP requests to the Dash0 API.
@@ -22,15 +23,17 @@ type Client struct {
 	dataset    string
 	httpClient *http.Client
 	debug      bool
+	maxRetries int
 }
 
 // New creates a new Dash0 API client from configuration.
 func New(cfg *config.Config) *Client {
 	return &Client{
-		baseURL:   cfg.BaseURL,
-		authToken: cfg.AuthToken,
-		dataset:   cfg.Dataset,
-		debug:     cfg.Debug,
+		baseURL:    cfg.BaseURL,
+		authToken:  cfg.AuthToken,
+		dataset:    cfg.Dataset,
+		debug:      cfg.Debug,
+		maxRetries: 3,
 		httpClient: &http.Client{
 			Timeout: 60 * time.Second,
 		},
@@ -41,9 +44,10 @@ func New(cfg *config.Config) *Client {
 // This is primarily used for testing with mock servers.
 func NewWithBaseURL(baseURL, authToken string) *Client {
 	return &Client{
-		baseURL:   baseURL,
-		authToken: authToken,
-		debug:     false,
+		baseURL:    baseURL,
+		authToken:  authToken,
+		debug:      false,
+		maxRetries: 3,
 		httpClient: &http.Client{
 			Timeout: 60 * time.Second,
 		},
@@ -74,6 +78,11 @@ func ErrorResult(statusCode int, message string) *ToolResult {
 			Detail:     message,
 		},
 	}
+}
+
+// GetDataset returns the configured dataset name.
+func (c *Client) GetDataset() string {
+	return c.dataset
 }
 
 // SuccessResult creates a success ToolResult.
@@ -108,40 +117,82 @@ func (c *Client) Delete(ctx context.Context, path string) *ToolResult {
 func (c *Client) Request(ctx context.Context, method, path string, body interface{}) *ToolResult {
 	requestURL := c.baseURL + path
 
-	// Add dataset parameter if configured
+	// Add dataset as query parameter for all request methods
 	if c.dataset != "" {
-		if method == http.MethodGet || method == http.MethodDelete {
-			// For GET/DELETE requests, add dataset as query parameter
-			requestURL = c.addDatasetQueryParam(requestURL)
-		} else if body != nil {
-			// For POST/PUT requests, inject dataset into body
-			body = c.injectDatasetIntoBody(body)
-		}
+		requestURL = c.addDatasetQueryParam(requestURL)
 	}
 
-	var bodyReader io.Reader
+	// Marshal the body once so we can re-use it across retries.
+	var bodyBytes []byte
 	if body != nil {
-		bodyBytes, err := json.Marshal(body)
+		var err error
+		bodyBytes, err = json.Marshal(body)
 		if err != nil {
 			return ErrorResult(http.StatusBadRequest, fmt.Sprintf("failed to marshal request body: %v", err))
 		}
-		bodyReader = bytes.NewReader(bodyBytes)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, requestURL, bodyReader)
-	if err != nil {
-		return ErrorResult(http.StatusInternalServerError, fmt.Sprintf("failed to create request: %v", err))
-	}
+	var resp *http.Response
+	var respBody []byte
 
-	// Set headers
-	req.Header.Set("Authorization", "Bearer "+c.authToken)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
+	for attempt := 0; attempt <= c.maxRetries; attempt++ {
+		// Build a fresh body reader for each attempt.
+		var bodyReader io.Reader
+		if bodyBytes != nil {
+			bodyReader = bytes.NewReader(bodyBytes)
+		}
 
-	// Execute request
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return ErrorResult(http.StatusInternalServerError, fmt.Sprintf("request failed: %v", err))
+		req, err := http.NewRequestWithContext(ctx, method, requestURL, bodyReader)
+		if err != nil {
+			return ErrorResult(http.StatusInternalServerError, fmt.Sprintf("failed to create request: %v", err))
+		}
+
+		// Set headers
+		req.Header.Set("Authorization", "Bearer "+c.authToken)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json")
+
+		// Execute request
+		resp, err = c.httpClient.Do(req)
+		if err != nil {
+			return ErrorResult(http.StatusInternalServerError, fmt.Sprintf("request failed: %v", err))
+		}
+
+		// Check if we should retry (429 or 503) and we have attempts left.
+		if (resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusServiceUnavailable) && attempt < c.maxRetries {
+			// Determine how long to wait before retrying.
+			var waitDuration time.Duration
+			if resp.StatusCode == http.StatusTooManyRequests {
+				if retryAfter := resp.Header.Get("Retry-After"); retryAfter != "" {
+					if seconds, parseErr := strconv.Atoi(retryAfter); parseErr == nil && seconds > 0 {
+						waitDuration = time.Duration(seconds) * time.Second
+					} else {
+						// Fallback to exponential backoff if header is not a valid integer.
+						waitDuration = time.Second * (1 << uint(attempt))
+					}
+				} else {
+					// No Retry-After header; use exponential backoff.
+					waitDuration = time.Second * (1 << uint(attempt))
+				}
+			} else {
+				// 503: use exponential backoff (1s, 2s, 4s).
+				waitDuration = time.Second * (1 << uint(attempt))
+			}
+
+			// Close the body before retrying to free resources.
+			resp.Body.Close()
+
+			// Wait, but respect context cancellation.
+			select {
+			case <-ctx.Done():
+				return ErrorResult(http.StatusInternalServerError, fmt.Sprintf("request cancelled during retry: %v", ctx.Err()))
+			case <-time.After(waitDuration):
+			}
+			continue
+		}
+
+		// No retry needed; break out of the loop.
+		break
 	}
 	defer resp.Body.Close()
 
@@ -226,35 +277,4 @@ func (c *Client) addDatasetQueryParam(requestURL string) string {
 	return requestURL + "?dataset=" + url.QueryEscape(c.dataset)
 }
 
-// injectDatasetIntoBody injects the dataset field into a request body.
-func (c *Client) injectDatasetIntoBody(body interface{}) interface{} {
-	if c.dataset == "" {
-		return body
-	}
 
-	// Handle map[string]interface{} bodies
-	if m, ok := body.(map[string]interface{}); ok {
-		// Don't override if dataset is already set
-		if _, exists := m["dataset"]; !exists {
-			m["dataset"] = c.dataset
-		}
-		return m
-	}
-
-	// For other types, try to convert via JSON marshaling/unmarshaling
-	bodyBytes, err := json.Marshal(body)
-	if err != nil {
-		return body
-	}
-
-	var m map[string]interface{}
-	if err := json.Unmarshal(bodyBytes, &m); err != nil {
-		return body
-	}
-
-	// Don't override if dataset is already set
-	if _, exists := m["dataset"]; !exists {
-		m["dataset"] = c.dataset
-	}
-	return m
-}

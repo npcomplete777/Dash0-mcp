@@ -5,13 +5,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 
-	"github.com/ajacobs/dash0-mcp-server/api"
-	"github.com/ajacobs/dash0-mcp-server/internal/client"
-	"github.com/ajacobs/dash0-mcp-server/internal/config"
-	"github.com/ajacobs/dash0-mcp-server/internal/registry"
+	"github.com/npcomplete777/dash0-mcp/api"
+	"github.com/npcomplete777/dash0-mcp/internal/client"
+	"github.com/npcomplete777/dash0-mcp/internal/config"
+	"github.com/npcomplete777/dash0-mcp/internal/registry"
 	mcp "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
@@ -22,25 +25,35 @@ const (
 )
 
 func main() {
+	// Set up structured logging
+	level := slog.LevelInfo
+	if debug := os.Getenv("DASH0_DEBUG"); debug == "true" || debug == "1" || debug == "yes" {
+		level = slog.LevelDebug
+	}
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
+	slog.SetDefault(logger)
+
 	// Load configuration
 	cfg, err := config.Load()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Configuration error: %v\n", err)
+		slog.Error("configuration error", "error", err)
 		os.Exit(1)
 	}
 
 	// Validate configuration
 	if err := cfg.Validate(); err != nil {
-		fmt.Fprintf(os.Stderr, "Configuration validation error: %v\n", err)
-		fmt.Fprintf(os.Stderr, "\nRequired environment variables:\n")
-		fmt.Fprintf(os.Stderr, "  DASH0_AUTH_TOKEN  - Bearer token for API authentication\n")
-		fmt.Fprintf(os.Stderr, "\nOptional environment variables:\n")
-		fmt.Fprintf(os.Stderr, "  DASH0_REGION      - Region (eu-west-1, us-east-1), default: eu-west-1\n")
-		fmt.Fprintf(os.Stderr, "  DASH0_BASE_URL    - Custom base URL (overrides region)\n")
-		fmt.Fprintf(os.Stderr, "  DASH0_DATASET     - Dataset to use for all API calls\n")
-		fmt.Fprintf(os.Stderr, "  DASH0_DEBUG       - Enable debug logging (true/false)\n")
-		fmt.Fprintf(os.Stderr, "  DASH0_MCP_PROFILE - Tool profile (full, demo, readonly, minimal)\n")
-		fmt.Fprintf(os.Stderr, "  DASH0_MCP_CONFIG_DIR - Path to config directory\n")
+		slog.Error("configuration validation error", "error", err)
+		slog.Info("required environment variables",
+			"DASH0_AUTH_TOKEN", "Bearer token for API authentication",
+		)
+		slog.Info("optional environment variables",
+			"DASH0_REGION", "Region (eu-west-1, us-east-1), default: eu-west-1",
+			"DASH0_BASE_URL", "Custom base URL (overrides region)",
+			"DASH0_DATASET", "Dataset to use for all API calls",
+			"DASH0_DEBUG", "Enable debug logging (true/false)",
+			"DASH0_MCP_PROFILE", "Tool profile (full, demo, readonly, minimal)",
+			"DASH0_MCP_CONFIG_DIR", "Path to config directory",
+		)
 		os.Exit(1)
 	}
 
@@ -65,16 +78,12 @@ func main() {
 
 	toolsConfig, profile, err = config.LoadToolsConfig(configDir, profileName)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: Could not load tools config from %s: %v\n", configDir, err)
-		fmt.Fprintf(os.Stderr, "Using default: all tools enabled\n")
+		slog.Warn("could not load tools config, using default: all tools enabled", "config_dir", configDir, "error", err)
 		enabledTools = nil // nil means all tools enabled
 	} else {
 		enabledTools = config.GetEnabledTools(toolsConfig, profile)
 		if profile != nil {
-			fmt.Fprintf(os.Stderr, "Loaded profile: %s\n", profile.Name)
-			if profile.Description != "" {
-				fmt.Fprintf(os.Stderr, "  Description: %s\n", profile.Description)
-			}
+			slog.Info("loaded profile", "name", profile.Name, "description", profile.Description)
 		}
 	}
 
@@ -89,9 +98,8 @@ func main() {
 
 	// Log enabled tools if configured
 	if toolsConfig != nil && toolsConfig.Settings.LogEnabledTools {
-		fmt.Fprintf(os.Stderr, "Enabled tools:\n")
 		for _, name := range reg.EnabledToolNames() {
-			fmt.Fprintf(os.Stderr, "  ✓ %s\n", name)
+			slog.Info("tool enabled", "name", name)
 		}
 	}
 
@@ -108,7 +116,7 @@ func main() {
 		t := tool // Capture loop variable
 		handler := reg.GetHandler(t.Name)
 		if handler == nil {
-			fmt.Fprintf(os.Stderr, "Warning: no handler for tool %s\n", t.Name)
+			slog.Warn("no handler for tool", "tool", t.Name)
 			continue
 		}
 
@@ -140,20 +148,33 @@ func main() {
 	}
 
 	// Log startup information
-	fmt.Fprintf(os.Stderr, "%s v%s starting\n", serverName, serverVersion)
-	fmt.Fprintf(os.Stderr, "  Region: %s\n", cfg.Region)
-	fmt.Fprintf(os.Stderr, "  Base URL: %s\n", cfg.BaseURL)
+	attrs := []any{
+		"version", serverVersion,
+		"region", cfg.Region,
+		"base_url", cfg.BaseURL,
+		"tools_enabled", reg.EnabledCount(),
+		"tools_total", reg.ToolCount(),
+	}
 	if cfg.Dataset != "" {
-		fmt.Fprintf(os.Stderr, "  Dataset: %s\n", cfg.Dataset)
+		attrs = append(attrs, "dataset", cfg.Dataset)
 	}
-	fmt.Fprintf(os.Stderr, "  Tools registered: %d/%d\n", reg.EnabledCount(), reg.ToolCount())
 	if cfg.Debug {
-		fmt.Fprintf(os.Stderr, "  Debug mode: enabled\n")
+		attrs = append(attrs, "debug", true)
 	}
+	slog.Info(serverName+" starting", attrs...)
+
+	// Set up graceful shutdown
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	go func() {
+		<-ctx.Done()
+		slog.Info("shutdown signal received")
+	}()
 
 	// Start the server
 	if err := server.ServeStdio(s); err != nil {
-		fmt.Fprintf(os.Stderr, "Server error: %v\n", err)
+		slog.Error("server error", "error", err)
 		os.Exit(1)
 	}
 }

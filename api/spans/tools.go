@@ -3,25 +3,34 @@ package spans
 import (
 	"context"
 	"strconv"
+	"strings"
 	"time"
 
-	"github.com/ajacobs/dash0-mcp-server/internal/client"
-	"github.com/ajacobs/dash0-mcp-server/internal/registry"
+	"github.com/npcomplete777/dash0-mcp/internal/client"
+	"github.com/npcomplete777/dash0-mcp/internal/otlp"
+	"github.com/npcomplete777/dash0-mcp/internal/registry"
 	mcp "github.com/mark3labs/mcp-go/mcp"
 )
 
-// Package provides MCP tools for Spans API operations.
-type Package struct {
+const (
+	basePath = "/api/spans"
+)
+
+// Compile-time interface check.
+var _ registry.ToolProvider = (*Tools)(nil)
+
+// Tools provides MCP tools for Spans API operations.
+type Tools struct {
 	client *client.Client
 }
 
-// New creates a new Spans package.
-func New(c *client.Client) *Package {
-	return &Package{client: c}
+// New creates a new Spans tools instance.
+func New(c *client.Client) *Tools {
+	return &Tools{client: c}
 }
 
 // Tools returns all MCP tools in this package.
-func (p *Package) Tools() []mcp.Tool {
+func (p *Tools) Tools() []mcp.Tool {
 	return []mcp.Tool{
 		p.PostSpans(),
 		p.QuerySpans(),
@@ -29,7 +38,7 @@ func (p *Package) Tools() []mcp.Tool {
 }
 
 // Handlers returns a map of tool name to handler function.
-func (p *Package) Handlers() map[string]func(context.Context, map[string]interface{}) *client.ToolResult {
+func (p *Tools) Handlers() map[string]func(context.Context, map[string]interface{}) *client.ToolResult {
 	return map[string]func(context.Context, map[string]interface{}) *client.ToolResult{
 		"dash0_spans_send":  p.PostSpansHandler,
 		"dash0_spans_query": p.QuerySpansHandler,
@@ -37,7 +46,7 @@ func (p *Package) Handlers() map[string]func(context.Context, map[string]interfa
 }
 
 // PostSpans returns the dash0_spans_send tool definition.
-func (p *Package) PostSpans() mcp.Tool {
+func (p *Tools) PostSpans() mcp.Tool {
 	return mcp.Tool{
 		Name:        "dash0_spans_send",
 		Description: "Send OTLP spans to Dash0. Accepts trace data in OTLP JSON format for distributed tracing analysis.",
@@ -55,17 +64,17 @@ func (p *Package) PostSpans() mcp.Tool {
 }
 
 // PostSpansHandler handles the dash0_spans_send tool.
-func (p *Package) PostSpansHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
+func (p *Tools) PostSpansHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
 	body, ok := args["body"]
 	if !ok {
 		return client.ErrorResult(400, "body is required")
 	}
 
-	return p.client.Post(ctx, "/api/spans", body)
+	return p.client.Post(ctx, basePath, body)
 }
 
 // QuerySpans returns the dash0_spans_query tool definition.
-func (p *Package) QuerySpans() mcp.Tool {
+func (p *Tools) QuerySpans() mcp.Tool {
 	return mcp.Tool{
 		Name: "dash0_spans_query",
 		Description: `Query spans from Dash0 with filtering by service, HTTP method, status code, and errors.
@@ -117,33 +126,15 @@ Example queries:
 	}
 }
 
-// AttributeFilter represents a filter condition for span queries.
-type AttributeFilter struct {
-	Key      string                `json:"key"`
-	Operator string                `json:"operator"`
-	Value    *AttributeFilterValue `json:"value,omitempty"`
-}
-
-// AttributeFilterValue represents the value in a filter condition.
-type AttributeFilterValue struct {
-	StringValue *string `json:"stringValue,omitempty"`
-	IntValue    *string `json:"intValue,omitempty"`
-	BoolValue   *bool   `json:"boolValue,omitempty"`
-}
-
-// TimeRange represents a time range for queries.
-type TimeRange struct {
-	From string `json:"from"`
-	To   string `json:"to"`
-}
-
-// Pagination represents pagination settings.
-type Pagination struct {
-	Limit int `json:"limit,omitempty"`
-}
+// Type aliases for shared OTLP types.
+type AttributeFilter = otlp.AttributeFilter
+type AttributeFilterValue = otlp.AttributeFilterValue
+type TimeRange = otlp.TimeRange
+type Pagination = otlp.Pagination
 
 // QuerySpansRequest represents the request body for querying spans.
 type QuerySpansRequest struct {
+	Dataset    string            `json:"dataset,omitempty"`
 	TimeRange  TimeRange         `json:"timeRange"`
 	Filter     []AttributeFilter `json:"filter,omitempty"`
 	Pagination Pagination        `json:"pagination,omitempty"`
@@ -165,24 +156,30 @@ type FlatSpan struct {
 }
 
 // QuerySpansHandler handles the dash0_spans_query tool.
-func (p *Package) QuerySpansHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
+func (p *Tools) QuerySpansHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
 	// Build filters
 	var filters []AttributeFilter
 
-	if serviceName, ok := args["service_name"].(string); ok && serviceName != "" {
-		filters = append(filters, AttributeFilter{
-			Key:      "service.name",
-			Operator: "is",
-			Value:    &AttributeFilterValue{StringValue: &serviceName},
-		})
+	if serviceName, ok := args["service_name"].(string); ok {
+		serviceName = strings.TrimSpace(serviceName)
+		if serviceName != "" {
+			filters = append(filters, AttributeFilter{
+				Key:      "service.name",
+				Operator: "is",
+				Value:    &AttributeFilterValue{StringValue: &serviceName},
+			})
+		}
 	}
 
-	if httpMethod, ok := args["http_method"].(string); ok && httpMethod != "" {
-		filters = append(filters, AttributeFilter{
-			Key:      "http.request.method",
-			Operator: "is",
-			Value:    &AttributeFilterValue{StringValue: &httpMethod},
-		})
+	if httpMethod, ok := args["http_method"].(string); ok {
+		httpMethod = strings.TrimSpace(httpMethod)
+		if httpMethod != "" {
+			filters = append(filters, AttributeFilter{
+				Key:      "http.request.method",
+				Operator: "is",
+				Value:    &AttributeFilterValue{StringValue: &httpMethod},
+			})
+		}
 	}
 
 	if statusCode, ok := args["http_status_code"].(float64); ok {
@@ -194,12 +191,15 @@ func (p *Package) QuerySpansHandler(ctx context.Context, args map[string]interfa
 		})
 	}
 
-	if spanName, ok := args["span_name"].(string); ok && spanName != "" {
-		filters = append(filters, AttributeFilter{
-			Key:      "name",
-			Operator: "is",
-			Value:    &AttributeFilterValue{StringValue: &spanName},
-		})
+	if spanName, ok := args["span_name"].(string); ok {
+		spanName = strings.TrimSpace(spanName)
+		if spanName != "" {
+			filters = append(filters, AttributeFilter{
+				Key:      "name",
+				Operator: "is",
+				Value:    &AttributeFilterValue{StringValue: &spanName},
+			})
+		}
 	}
 
 	if errorOnly, ok := args["error_only"].(bool); ok && errorOnly {
@@ -214,25 +214,36 @@ func (p *Package) QuerySpansHandler(ctx context.Context, args map[string]interfa
 	// Calculate time range
 	now := time.Now().UTC()
 	minutes := 60
-	if m, ok := args["time_range_minutes"].(float64); ok && m > 0 {
-		minutes = int(m)
-		if minutes > 1440 {
-			minutes = 1440 // Max 24 hours
+	if m, ok := args["time_range_minutes"].(float64); ok {
+		if m < 0 {
+			return client.ErrorResult(400, "time_range_minutes must not be negative")
+		}
+		if m > 0 {
+			minutes = int(m)
+			if minutes > 1440 {
+				minutes = 1440 // Max 24 hours
+			}
 		}
 	}
 	from := now.Add(-time.Duration(minutes) * time.Minute)
 
 	// Set limit
 	limit := 100
-	if l, ok := args["limit"].(float64); ok && l > 0 {
-		limit = int(l)
-		if limit > 200 {
-			limit = 200
+	if l, ok := args["limit"].(float64); ok {
+		if l < 0 {
+			return client.ErrorResult(400, "limit must not be negative")
+		}
+		if l > 0 {
+			limit = int(l)
+			if limit > 200 {
+				limit = 200
+			}
 		}
 	}
 
 	// Build request
 	req := QuerySpansRequest{
+		Dataset: p.client.GetDataset(),
 		TimeRange: TimeRange{
 			From: from.Format(time.RFC3339),
 			To:   now.Format(time.RFC3339),
@@ -242,7 +253,7 @@ func (p *Package) QuerySpansHandler(ctx context.Context, args map[string]interfa
 	}
 
 	// Execute query
-	result := p.client.Post(ctx, "/api/spans", req)
+	result := p.client.Post(ctx, basePath, req)
 	if !result.Success {
 		return result
 	}
@@ -376,31 +387,7 @@ func flattenSpansResponse(data interface{}) []FlatSpan {
 
 // extractServiceName gets service.name from resource attributes.
 func extractServiceName(rsMap map[string]interface{}) string {
-	resource, ok := rsMap["resource"].(map[string]interface{})
-	if !ok {
-		return ""
-	}
-
-	attrs, ok := resource["attributes"].([]interface{})
-	if !ok {
-		return ""
-	}
-
-	for _, attr := range attrs {
-		attrMap, ok := attr.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		if key, ok := attrMap["key"].(string); ok && key == "service.name" {
-			if value, ok := attrMap["value"].(map[string]interface{}); ok {
-				if strVal, ok := value["stringValue"].(string); ok {
-					return strVal
-				}
-			}
-		}
-	}
-
-	return ""
+	return otlp.ExtractServiceName(rsMap)
 }
 
 // extractSpanAttributes extracts commonly used attributes from a span.

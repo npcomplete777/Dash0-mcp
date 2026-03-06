@@ -26,7 +26,7 @@ go build -o dash0-mcp ./cmd/server
 ### Install with Go
 
 ```bash
-go install github.com/ajacobs/dash0-mcp-server/cmd/server@latest
+go install github.com/npcomplete777/dash0-mcp/cmd/server@latest
 ```
 
 ## Configuration
@@ -262,24 +262,40 @@ Assistant: [Uses dash0_import_dashboard with the provided JSON]
 | US East 1 (Virginia) | `https://api.us-east-1.aws.dash0.com` |
 | US West 2 (Oregon) | `https://api.us-west-2.aws.dash0.com` |
 
+## Architecture
+
+### Key Design Decisions
+
+- **Shared OTLP types**: Common telemetry query types (`AttributeFilter`, `TimeRange`, `Pagination`) are defined once in `internal/otlp/` and shared by logs and spans packages
+- **ToolProvider interface**: All 8 domain packages implement `registry.ToolProvider` with compile-time verification (`var _ registry.ToolProvider = (*Tools)(nil)`)
+- **HTTP retry logic**: The client automatically retries on HTTP 429 (rate limit) and 503 (service unavailable) with exponential backoff and `Retry-After` header support
+- **Structured logging**: Uses `log/slog` for leveled, structured log output (controlled by `DASH0_DEBUG`)
+- **Graceful shutdown**: Handles `SIGINT`/`SIGTERM` for clean process termination
+- **Input validation**: Query tools validate parameters (reject negative time ranges/limits, trim whitespace from string filters)
+- **Dataset handling**: Dataset is passed as a query parameter on all API requests, and additionally in the request body for telemetry query endpoints
+
 ## Development
 
 ### Project Structure
 
 ```
-dash0-mcp-server/
+dash0-mcp/
 ├── cmd/server/           # Main entry point
-│   └── main.go
+│   └── main.go           # Server bootstrap, slog setup, signal handling
 ├── internal/
 │   ├── client/           # HTTP client for Dash0 API
-│   │   └── client.go
+│   │   └── client.go     # Request execution, retry logic, dataset handling
 │   ├── config/           # Configuration management
-│   │   ├── config.go     # Auth/region config
+│   │   ├── config.go     # Auth/region config + validation
 │   │   └── tools.go      # Tool profile config
+│   ├── otlp/             # Shared OpenTelemetry types
+│   │   ├── types.go      # AttributeFilter, TimeRange, Pagination
+│   │   └── extract.go    # ExtractServiceName helper
 │   └── registry/         # Tool registry with filtering
-│       └── registry.go
+│       └── registry.go   # Registry, ToolProvider interface
 ├── api/                  # MCP tool packages
 │   ├── registry.go       # Unified tool registration
+│   ├── provider.go       # ToolProvider type alias
 │   ├── alerting/         # Check rules tools
 │   ├── dashboards/       # Dashboard tools
 │   ├── imports/          # Import tools
@@ -295,6 +311,7 @@ dash0-mcp-server/
 │       ├── demo.yaml
 │       ├── readonly.yaml
 │       └── minimal.yaml
+├── LICENSE
 ├── go.mod
 ├── go.sum
 └── README.md
@@ -304,14 +321,16 @@ dash0-mcp-server/
 
 1. Create a new package under `api/` or add to an existing one
 2. Implement the package structure:
-   - `Package` struct with `client *client.Client`
-   - `New(c *client.Client) *Package` constructor
+   - `Tools` struct with `client *client.Client`
+   - `New(c *client.Client) *Tools` constructor
    - `Tools() []mcp.Tool` - Return tool definitions
    - `Handlers() map[string]func(...) *client.ToolResult` - Return handlers
    - `Register(reg *registry.Registry, c *client.Client)` - Register with registry
-3. Call the Register function in `api/registry.go`
-4. Add tool definitions to `config/tools.yaml`
-5. Update profiles as needed
+   - `var _ registry.ToolProvider = (*Tools)(nil)` - Compile-time interface check
+3. Define a `basePath` constant for API endpoints
+4. Call the Register function in `api/registry.go`
+5. Add tool definitions to `config/tools.yaml`
+6. Update profiles as needed
 
 ### Running Tests
 
@@ -334,22 +353,6 @@ go test -coverprofile=coverage.out ./...
 go tool cover -html=coverage.out -o coverage.html
 ```
 
-#### Current Coverage
-
-| Package | Coverage |
-|---------|----------|
-| `api/alerting` | 100.0% |
-| `api/dashboards` | 100.0% |
-| `api/imports` | 100.0% |
-| `api/logs` | 93.0% |
-| `api/samplingrules` | 100.0% |
-| `api/spans` | 94.0% |
-| `api/syntheticchecks` | 100.0% |
-| `api/views` | 100.0% |
-| `internal/client` | 96.2% |
-| `internal/config` | 91.9% |
-| `internal/registry` | 95.0% |
-
 ### Building
 
 ```bash
@@ -358,7 +361,7 @@ go build -o dash0-mcp ./cmd/server
 
 ## License
 
-MIT License - See LICENSE file for details.
+MIT License - See [LICENSE](LICENSE) file for details.
 
 ## Contributing
 
@@ -368,4 +371,4 @@ Contributions are welcome! Please read the contributing guidelines before submit
 
 - [Dash0 Documentation](https://www.dash0.com/docs)
 - [Dash0 API Reference](https://api-docs.dash0.com)
-- [GitHub Issues](https://github.com/ajacobs/dash0-mcp-server/issues)
+- [GitHub Issues](https://github.com/npcomplete777/Dash0-mcp/issues)

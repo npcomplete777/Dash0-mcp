@@ -97,10 +97,7 @@ func (c *Config) Validate() error {
 	case RegionEUWest1, RegionUSEast1, RegionUSWest2:
 		// Valid regions
 	default:
-		if c.BaseURL == "" {
-			return fmt.Errorf("invalid region %q: must be eu-west-1, us-east-1, or us-west-2", c.Region)
-		}
-		// Allow custom regions if base URL is explicitly set
+		// Allow custom regions if base URL is explicitly set (already validated above)
 	}
 
 	return nil

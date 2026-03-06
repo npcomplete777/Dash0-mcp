@@ -7,12 +7,18 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/ajacobs/dash0-mcp-server/internal/client"
+	"github.com/npcomplete777/dash0-mcp/internal/client"
 	mcp "github.com/mark3labs/mcp-go/mcp"
 )
 
 // Handler is the function signature for tool handlers.
 type Handler func(ctx context.Context, args map[string]interface{}) *client.ToolResult
+
+// ToolProvider is the interface that all domain tool packages implement.
+type ToolProvider interface {
+	Tools() []mcp.Tool
+	Handlers() map[string]func(context.Context, map[string]interface{}) *client.ToolResult
+}
 
 // ToolDef contains the complete definition of a tool.
 type ToolDef struct {

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ajacobs/dash0-mcp-server/internal/client"
+	"github.com/npcomplete777/dash0-mcp/internal/client"
 )
 
 func TestNew(t *testing.T) {
@@ -466,33 +466,33 @@ func TestAllImportToolsUsePost(t *testing.T) {
 	testCases := []struct {
 		toolName     string
 		expectedPath string
-		handler      func(*Package, context.Context, map[string]interface{}) *client.ToolResult
+		handler      func(*Tools, context.Context, map[string]interface{}) *client.ToolResult
 	}{
 		{
 			toolName:     "ImportCheckRule",
 			expectedPath: "/api/import/check-rule",
-			handler: func(p *Package, ctx context.Context, args map[string]interface{}) *client.ToolResult {
+			handler: func(p *Tools, ctx context.Context, args map[string]interface{}) *client.ToolResult {
 				return p.ImportCheckRuleHandler(ctx, args)
 			},
 		},
 		{
 			toolName:     "ImportDashboard",
 			expectedPath: "/api/import/dashboard",
-			handler: func(p *Package, ctx context.Context, args map[string]interface{}) *client.ToolResult {
+			handler: func(p *Tools, ctx context.Context, args map[string]interface{}) *client.ToolResult {
 				return p.ImportDashboardHandler(ctx, args)
 			},
 		},
 		{
 			toolName:     "ImportSyntheticCheck",
 			expectedPath: "/api/import/synthetic-check",
-			handler: func(p *Package, ctx context.Context, args map[string]interface{}) *client.ToolResult {
+			handler: func(p *Tools, ctx context.Context, args map[string]interface{}) *client.ToolResult {
 				return p.ImportSyntheticCheckHandler(ctx, args)
 			},
 		},
 		{
 			toolName:     "ImportView",
 			expectedPath: "/api/import/view",
-			handler: func(p *Package, ctx context.Context, args map[string]interface{}) *client.ToolResult {
+			handler: func(p *Tools, ctx context.Context, args map[string]interface{}) *client.ToolResult {
 				return p.ImportViewHandler(ctx, args)
 			},
 		},

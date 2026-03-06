@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/ajacobs/dash0-mcp-server/internal/config"
+	"github.com/npcomplete777/dash0-mcp/internal/config"
 )
 
 func TestNew(t *testing.T) {
@@ -456,10 +456,10 @@ func TestClient_DatasetQueryParamWithExistingParams(t *testing.T) {
 	}
 }
 
-func TestClient_DatasetInPostBody(t *testing.T) {
-	var capturedBody map[string]interface{}
+func TestClient_DatasetQueryParamForPost(t *testing.T) {
+	var capturedURL string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewDecoder(r.Body).Decode(&capturedBody)
+		capturedURL = r.URL.String()
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
@@ -474,18 +474,15 @@ func TestClient_DatasetInPostBody(t *testing.T) {
 		"sampling": map[string]string{"mode": "adaptive"},
 	})
 
-	if capturedBody["dataset"] != "my-dataset" {
-		t.Errorf("dataset = %v, want %q", capturedBody["dataset"], "my-dataset")
-	}
-	if capturedBody["sampling"] == nil {
-		t.Error("expected sampling to be preserved in body")
+	if capturedURL != "/api/spans?dataset=my-dataset" {
+		t.Errorf("URL = %q, want %q", capturedURL, "/api/spans?dataset=my-dataset")
 	}
 }
 
-func TestClient_DatasetDoesNotOverrideExisting(t *testing.T) {
-	var capturedBody map[string]interface{}
+func TestClient_DatasetQueryParamForPut(t *testing.T) {
+	var capturedURL string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewDecoder(r.Body).Decode(&capturedBody)
+		capturedURL = r.URL.String()
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
@@ -493,26 +490,44 @@ func TestClient_DatasetDoesNotOverrideExisting(t *testing.T) {
 	cfg := &config.Config{
 		BaseURL:   server.URL,
 		AuthToken: "test-token",
-		Dataset:   "config-dataset",
+		Dataset:   "my-dataset",
 	}
 	client := New(cfg)
-	client.Post(context.Background(), "/api/spans", map[string]interface{}{
-		"dataset": "explicit-dataset",
+	client.Put(context.Background(), "/api/spans/123", map[string]interface{}{
+		"data": "test",
 	})
 
-	if capturedBody["dataset"] != "explicit-dataset" {
-		t.Errorf("dataset = %v, want %q (should not override)", capturedBody["dataset"], "explicit-dataset")
+	if capturedURL != "/api/spans/123?dataset=my-dataset" {
+		t.Errorf("URL = %q, want %q", capturedURL, "/api/spans/123?dataset=my-dataset")
+	}
+}
+
+func TestClient_GetDataset(t *testing.T) {
+	cfg := &config.Config{
+		BaseURL:   "https://api.example.com",
+		AuthToken: "test-token",
+		Dataset:   "my-dataset",
+	}
+	client := New(cfg)
+	if client.GetDataset() != "my-dataset" {
+		t.Errorf("GetDataset() = %q, want %q", client.GetDataset(), "my-dataset")
+	}
+
+	// Empty dataset
+	cfg2 := &config.Config{
+		BaseURL:   "https://api.example.com",
+		AuthToken: "test-token",
+	}
+	client2 := New(cfg2)
+	if client2.GetDataset() != "" {
+		t.Errorf("GetDataset() = %q, want empty", client2.GetDataset())
 	}
 }
 
 func TestClient_NoDatasetWhenNotConfigured(t *testing.T) {
 	var capturedURL string
-	var capturedBody map[string]interface{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		capturedURL = r.URL.String()
-		if r.Method == http.MethodPost {
-			json.NewDecoder(r.Body).Decode(&capturedBody)
-		}
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
@@ -530,10 +545,10 @@ func TestClient_NoDatasetWhenNotConfigured(t *testing.T) {
 		t.Errorf("URL = %q, want %q (no dataset param)", capturedURL, "/api/views")
 	}
 
-	// Test POST - should not have dataset in body
+	// Test POST - should not have dataset param
 	client.Post(context.Background(), "/api/spans", map[string]interface{}{"data": "test"})
-	if _, exists := capturedBody["dataset"]; exists {
-		t.Errorf("dataset should not be in body when not configured")
+	if capturedURL != "/api/spans" {
+		t.Errorf("URL = %q, want %q (no dataset param)", capturedURL, "/api/spans")
 	}
 }
 

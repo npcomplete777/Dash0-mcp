@@ -3,11 +3,12 @@ package spans
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	"github.com/ajacobs/dash0-mcp-server/internal/client"
+	"github.com/npcomplete777/dash0-mcp/internal/client"
 )
 
 func TestNew(t *testing.T) {
@@ -831,14 +832,5 @@ func TestQuerySpansHandler_DurationFilter(t *testing.T) {
 
 // Helper function to create formatted errors
 func errorf(format string, args ...interface{}) error {
-	return &testError{msg: format, args: args}
-}
-
-type testError struct {
-	msg  string
-	args []interface{}
-}
-
-func (e *testError) Error() string {
-	return e.msg
+	return fmt.Errorf(format, args...)
 }

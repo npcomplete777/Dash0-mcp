@@ -5,23 +5,30 @@ import (
 	"fmt"
 	"net/url"
 
-	"github.com/ajacobs/dash0-mcp-server/internal/client"
-	"github.com/ajacobs/dash0-mcp-server/internal/registry"
+	"github.com/npcomplete777/dash0-mcp/internal/client"
+	"github.com/npcomplete777/dash0-mcp/internal/registry"
 	mcp "github.com/mark3labs/mcp-go/mcp"
 )
 
-// Package provides MCP tools for Sampling Rules API operations.
-type Package struct {
+const (
+	basePath = "/api/sampling-rules"
+)
+
+// Compile-time interface check.
+var _ registry.ToolProvider = (*Tools)(nil)
+
+// Tools provides MCP tools for Sampling Rules API operations.
+type Tools struct {
 	client *client.Client
 }
 
-// New creates a new Sampling Rules package.
-func New(c *client.Client) *Package {
-	return &Package{client: c}
+// New creates a new Sampling Rules tools instance.
+func New(c *client.Client) *Tools {
+	return &Tools{client: c}
 }
 
 // Tools returns all MCP tools in this package.
-func (p *Package) Tools() []mcp.Tool {
+func (p *Tools) Tools() []mcp.Tool {
 	return []mcp.Tool{
 		p.ListSamplingRules(),
 		p.GetSamplingRule(),
@@ -32,7 +39,7 @@ func (p *Package) Tools() []mcp.Tool {
 }
 
 // Handlers returns a map of tool name to handler function.
-func (p *Package) Handlers() map[string]func(context.Context, map[string]interface{}) *client.ToolResult {
+func (p *Tools) Handlers() map[string]func(context.Context, map[string]interface{}) *client.ToolResult {
 	return map[string]func(context.Context, map[string]interface{}) *client.ToolResult{
 		"dash0_sampling_rules_list":   p.ListSamplingRulesHandler,
 		"dash0_sampling_rules_get":    p.GetSamplingRuleHandler,
@@ -43,7 +50,7 @@ func (p *Package) Handlers() map[string]func(context.Context, map[string]interfa
 }
 
 // ListSamplingRules returns the dash0_sampling_rules_list tool definition.
-func (p *Package) ListSamplingRules() mcp.Tool {
+func (p *Tools) ListSamplingRules() mcp.Tool {
 	return mcp.Tool{
 		Name:        "dash0_sampling_rules_list",
 		Description: "List all sampling rules in Dash0. Sampling rules control which traces and logs are ingested, helping manage data volume and costs.",
@@ -55,12 +62,12 @@ func (p *Package) ListSamplingRules() mcp.Tool {
 }
 
 // ListSamplingRulesHandler handles the dash0_sampling_rules_list tool.
-func (p *Package) ListSamplingRulesHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
-	return p.client.Get(ctx, "/api/sampling-rules")
+func (p *Tools) ListSamplingRulesHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
+	return p.client.Get(ctx, basePath)
 }
 
 // GetSamplingRule returns the dash0_sampling_rules_get tool definition.
-func (p *Package) GetSamplingRule() mcp.Tool {
+func (p *Tools) GetSamplingRule() mcp.Tool {
 	return mcp.Tool{
 		Name:        "dash0_sampling_rules_get",
 		Description: "Get a specific sampling rule by its origin or ID, including matching conditions and sample rates.",
@@ -78,18 +85,18 @@ func (p *Package) GetSamplingRule() mcp.Tool {
 }
 
 // GetSamplingRuleHandler handles the dash0_sampling_rules_get tool.
-func (p *Package) GetSamplingRuleHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
+func (p *Tools) GetSamplingRuleHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
 	originOrID, ok := args["origin_or_id"].(string)
 	if !ok || originOrID == "" {
 		return client.ErrorResult(400, "origin_or_id is required")
 	}
 
-	path := fmt.Sprintf("/api/sampling-rules/%s", url.PathEscape(originOrID))
+	path := fmt.Sprintf(basePath+"/%s", url.PathEscape(originOrID))
 	return p.client.Get(ctx, path)
 }
 
 // CreateSamplingRule returns the dash0_sampling_rules_create tool definition.
-func (p *Package) CreateSamplingRule() mcp.Tool {
+func (p *Tools) CreateSamplingRule() mcp.Tool {
 	return mcp.Tool{
 		Name:        "dash0_sampling_rules_create",
 		Description: `Create a new sampling rule in Dash0 to control data ingestion rates for specific services, operations, or attributes.
@@ -222,17 +229,17 @@ NOTE: Use "rate" (0.0-1.0), NOT "probability" or "percentage"!
 }
 
 // CreateSamplingRuleHandler handles the dash0_sampling_rules_create tool.
-func (p *Package) CreateSamplingRuleHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
+func (p *Tools) CreateSamplingRuleHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
 	body, ok := args["body"]
 	if !ok {
 		return client.ErrorResult(400, "body is required")
 	}
 
-	return p.client.Post(ctx, "/api/sampling-rules", body)
+	return p.client.Post(ctx, basePath, body)
 }
 
 // UpdateSamplingRule returns the dash0_sampling_rules_update tool definition.
-func (p *Package) UpdateSamplingRule() mcp.Tool {
+func (p *Tools) UpdateSamplingRule() mcp.Tool {
 	return mcp.Tool{
 		Name:        "dash0_sampling_rules_update",
 		Description: `Update an existing sampling rule by its origin or ID.
@@ -269,7 +276,7 @@ Remember: Use "rate" (0.0-1.0) for probabilistic sampling, NOT "probability"!`,
 }
 
 // UpdateSamplingRuleHandler handles the dash0_sampling_rules_update tool.
-func (p *Package) UpdateSamplingRuleHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
+func (p *Tools) UpdateSamplingRuleHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
 	originOrID, ok := args["origin_or_id"].(string)
 	if !ok || originOrID == "" {
 		return client.ErrorResult(400, "origin_or_id is required")
@@ -280,12 +287,12 @@ func (p *Package) UpdateSamplingRuleHandler(ctx context.Context, args map[string
 		return client.ErrorResult(400, "body is required")
 	}
 
-	path := fmt.Sprintf("/api/sampling-rules/%s", url.PathEscape(originOrID))
+	path := fmt.Sprintf(basePath+"/%s", url.PathEscape(originOrID))
 	return p.client.Put(ctx, path, body)
 }
 
 // DeleteSamplingRule returns the dash0_sampling_rules_delete tool definition.
-func (p *Package) DeleteSamplingRule() mcp.Tool {
+func (p *Tools) DeleteSamplingRule() mcp.Tool {
 	return mcp.Tool{
 		Name:        "dash0_sampling_rules_delete",
 		Description: "Delete a sampling rule by its origin or ID.",
@@ -303,13 +310,13 @@ func (p *Package) DeleteSamplingRule() mcp.Tool {
 }
 
 // DeleteSamplingRuleHandler handles the dash0_sampling_rules_delete tool.
-func (p *Package) DeleteSamplingRuleHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
+func (p *Tools) DeleteSamplingRuleHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
 	originOrID, ok := args["origin_or_id"].(string)
 	if !ok || originOrID == "" {
 		return client.ErrorResult(400, "origin_or_id is required")
 	}
 
-	path := fmt.Sprintf("/api/sampling-rules/%s", url.PathEscape(originOrID))
+	path := fmt.Sprintf(basePath+"/%s", url.PathEscape(originOrID))
 	return p.client.Delete(ctx, path)
 }
 
