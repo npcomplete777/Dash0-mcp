@@ -1,5 +1,6 @@
 # Binaries
 dash0-mcp
+dash0-mcp-server
 *.exe
 *.dll
 *.so

@@ -121,6 +121,10 @@ Example queries:
 					"type":        "integer",
 					"description": "Max spans to return (default: 100, max: 200)",
 				},
+				"dataset": map[string]interface{}{
+					"type":        "string",
+					"description": "Dash0 dataset to query (e.g., 'astronomy-demo'). If omitted, uses the globally configured dataset or 'default'.",
+				},
 			},
 		},
 	}
@@ -241,9 +245,17 @@ func (p *Tools) QuerySpansHandler(ctx context.Context, args map[string]interface
 		}
 	}
 
+	// Resolve dataset: per-tool param overrides global config
+	dataset := ""
+	if ds, ok := args["dataset"].(string); ok && ds != "" {
+		dataset = ds
+	} else {
+		dataset = p.client.GetDataset()
+	}
+
 	// Build request
 	req := QuerySpansRequest{
-		Dataset: p.client.GetDataset(),
+		Dataset: dataset,
 		TimeRange: TimeRange{
 			From: from.Format(time.RFC3339),
 			To:   now.Format(time.RFC3339),
@@ -253,7 +265,7 @@ func (p *Tools) QuerySpansHandler(ctx context.Context, args map[string]interface
 	}
 
 	// Execute query
-	result := p.client.Post(ctx, basePath, req)
+	result := p.client.PostWithDataset(ctx, basePath, req, dataset)
 	if !result.Success {
 		return result
 	}

@@ -552,6 +552,56 @@ func TestClient_NoDatasetWhenNotConfigured(t *testing.T) {
 	}
 }
 
+func TestClient_PostWithDatasetOverride(t *testing.T) {
+	var capturedURL string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedURL = r.URL.String()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	cfg := &config.Config{
+		BaseURL:   server.URL,
+		AuthToken: "test-token",
+		Dataset:   "global-dataset",
+	}
+	client := New(cfg)
+
+	// PostWithDataset with override should use the override dataset
+	client.PostWithDataset(context.Background(), "/api/spans", map[string]interface{}{
+		"query": "test",
+	}, "override-dataset")
+
+	if capturedURL != "/api/spans?dataset=override-dataset" {
+		t.Errorf("URL = %q, want %q", capturedURL, "/api/spans?dataset=override-dataset")
+	}
+}
+
+func TestClient_PostWithDatasetFallsBackToGlobal(t *testing.T) {
+	var capturedURL string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedURL = r.URL.String()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	cfg := &config.Config{
+		BaseURL:   server.URL,
+		AuthToken: "test-token",
+		Dataset:   "global-dataset",
+	}
+	client := New(cfg)
+
+	// PostWithDataset with empty override should fall back to global dataset
+	client.PostWithDataset(context.Background(), "/api/spans", map[string]interface{}{
+		"query": "test",
+	}, "")
+
+	if capturedURL != "/api/spans?dataset=global-dataset" {
+		t.Errorf("URL = %q, want %q", capturedURL, "/api/spans?dataset=global-dataset")
+	}
+}
+
 func TestClient_DatasetDeleteQueryParam(t *testing.T) {
 	var capturedURL string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

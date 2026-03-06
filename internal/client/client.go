@@ -85,6 +85,114 @@ func (c *Client) GetDataset() string {
 	return c.dataset
 }
 
+// PostWithDataset performs a POST request with a specific dataset override.
+// If dataset is non-empty, it overrides the global dataset for this request.
+func (c *Client) PostWithDataset(ctx context.Context, path string, body interface{}, dataset string) *ToolResult {
+	if dataset != "" {
+		return c.requestWithDataset(ctx, http.MethodPost, path, body, dataset)
+	}
+	return c.Request(ctx, http.MethodPost, path, body)
+}
+
+// requestWithDataset performs an HTTP request with a specific dataset, overriding the global one.
+func (c *Client) requestWithDataset(ctx context.Context, method, path string, body interface{}, dataset string) *ToolResult {
+	requestURL := c.baseURL + path
+
+	if strings.Contains(requestURL, "?") {
+		requestURL = requestURL + "&dataset=" + url.QueryEscape(dataset)
+	} else {
+		requestURL = requestURL + "?dataset=" + url.QueryEscape(dataset)
+	}
+
+	var bodyBytes []byte
+	if body != nil {
+		var err error
+		bodyBytes, err = json.Marshal(body)
+		if err != nil {
+			return ErrorResult(http.StatusBadRequest, fmt.Sprintf("failed to marshal request body: %v", err))
+		}
+	}
+
+	var resp *http.Response
+	var respBody []byte
+
+	for attempt := 0; attempt <= c.maxRetries; attempt++ {
+		var bodyReader io.Reader
+		if bodyBytes != nil {
+			bodyReader = bytes.NewReader(bodyBytes)
+		}
+
+		req, err := http.NewRequestWithContext(ctx, method, requestURL, bodyReader)
+		if err != nil {
+			return ErrorResult(http.StatusInternalServerError, fmt.Sprintf("failed to create request: %v", err))
+		}
+
+		req.Header.Set("Authorization", "Bearer "+c.authToken)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json")
+
+		resp, err = c.httpClient.Do(req)
+		if err != nil {
+			return ErrorResult(http.StatusInternalServerError, fmt.Sprintf("request failed: %v", err))
+		}
+
+		if (resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusServiceUnavailable) && attempt < c.maxRetries {
+			var waitDuration time.Duration
+			if resp.StatusCode == http.StatusTooManyRequests {
+				if retryAfter := resp.Header.Get("Retry-After"); retryAfter != "" {
+					if seconds, parseErr := strconv.Atoi(retryAfter); parseErr == nil && seconds > 0 {
+						waitDuration = time.Duration(seconds) * time.Second
+					} else {
+						waitDuration = time.Second * (1 << uint(attempt))
+					}
+				} else {
+					waitDuration = time.Second * (1 << uint(attempt))
+				}
+			} else {
+				waitDuration = time.Second * (1 << uint(attempt))
+			}
+
+			resp.Body.Close()
+
+			select {
+			case <-ctx.Done():
+				return ErrorResult(http.StatusInternalServerError, fmt.Sprintf("request cancelled during retry: %v", ctx.Err()))
+			case <-time.After(waitDuration):
+			}
+			continue
+		}
+
+		break
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return ErrorResult(http.StatusInternalServerError, fmt.Sprintf("failed to read response: %v", err))
+	}
+
+	var result interface{}
+	if len(respBody) > 0 {
+		if err := json.Unmarshal(respBody, &result); err != nil {
+			result = string(respBody)
+		}
+	}
+
+	if resp.StatusCode >= 400 {
+		return &ToolResult{
+			Success: false,
+			Error: &APIError{
+				StatusCode: resp.StatusCode,
+				Title:      resp.Status,
+				Detail:     extractErrorDetail(result),
+			},
+			Data: result,
+		}
+	}
+
+	return SuccessResult(result)
+}
+
 // SuccessResult creates a success ToolResult.
 func SuccessResult(data interface{}) *ToolResult {
 	return &ToolResult{
