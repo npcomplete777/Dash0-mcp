@@ -194,3 +194,324 @@ func TestRegistryToolNamingConvention(t *testing.T) {
 		}
 	}
 }
+
+// setupRegistryWithProfile creates a registry filtered by the given profile.
+// It loads the real tools.yaml and profile YAML from the config directory.
+func setupRegistryWithProfile(t *testing.T, profileName string) *registry.Registry {
+	t.Helper()
+	configDir := "../config"
+
+	tc, profile, err := config.LoadToolsConfig(configDir, profileName)
+	if err != nil {
+		t.Fatalf("failed to load tools config with profile %q: %v", profileName, err)
+	}
+
+	enabledTools := config.GetEnabledTools(tc, profile)
+
+	cfg := &config.Config{
+		BaseURL:   "https://api.example.com",
+		AuthToken: "test-token",
+	}
+	c := client.New(cfg)
+	reg := registry.New(enabledTools)
+	RegisterAllTools(reg, c)
+	return reg
+}
+
+func TestProfileFull_EnablesAllExceptDeletes(t *testing.T) {
+	reg := setupRegistryWithProfile(t, "full")
+
+	// Full profile should enable all tools except deletes
+	shouldBeEnabled := []string{
+		"dash0_dashboards_list",
+		"dash0_dashboards_get",
+		"dash0_dashboards_create",
+		"dash0_dashboards_update",
+		"dash0_alerting_check_rules_list",
+		"dash0_alerting_check_rules_get",
+		"dash0_alerting_check_rules_create",
+		"dash0_alerting_check_rules_update",
+		"dash0_alerting_active_alerts",
+		"dash0_synthetic_checks_list",
+		"dash0_synthetic_checks_get",
+		"dash0_synthetic_checks_create",
+		"dash0_synthetic_checks_update",
+		"dash0_sampling_rules_list",
+		"dash0_sampling_rules_get",
+		"dash0_sampling_rules_create",
+		"dash0_sampling_rules_update",
+		"dash0_views_list",
+		"dash0_views_get",
+		"dash0_views_create",
+		"dash0_views_update",
+		"dash0_logs_query",
+		"dash0_logs_send",
+		"dash0_spans_query",
+		"dash0_spans_send",
+		"dash0_import_dashboard",
+		"dash0_import_check_rule",
+		"dash0_import_synthetic_check",
+		"dash0_import_view",
+	}
+
+	shouldBeDisabled := []string{
+		"dash0_dashboards_delete",
+		"dash0_alerting_check_rules_delete",
+		"dash0_synthetic_checks_delete",
+		"dash0_sampling_rules_delete",
+		"dash0_views_delete",
+	}
+
+	for _, name := range shouldBeEnabled {
+		if !reg.IsEnabled(name) {
+			t.Errorf("full profile: %s should be enabled", name)
+		}
+	}
+
+	for _, name := range shouldBeDisabled {
+		if reg.IsEnabled(name) {
+			t.Errorf("full profile: %s should be disabled", name)
+		}
+	}
+
+	// GetEnabledTools should not include disabled tools
+	enabledTools := reg.GetEnabledTools()
+	enabledNames := make(map[string]bool)
+	for _, tool := range enabledTools {
+		enabledNames[tool.Name] = true
+	}
+
+	for _, name := range shouldBeDisabled {
+		if enabledNames[name] {
+			t.Errorf("full profile: GetEnabledTools() should not include %s", name)
+		}
+	}
+}
+
+func TestProfileMinimal_OnlyEnablesCoreTools(t *testing.T) {
+	reg := setupRegistryWithProfile(t, "minimal")
+
+	shouldBeEnabled := []string{
+		"dash0_logs_query",
+		"dash0_spans_query",
+		"dash0_dashboards_list",
+		"dash0_dashboards_get",
+		"dash0_alerting_check_rules_list",
+		"dash0_alerting_check_rules_get",
+		"dash0_synthetic_checks_list",
+		"dash0_synthetic_checks_get",
+	}
+
+	shouldBeDisabled := []string{
+		"dash0_dashboards_create",
+		"dash0_dashboards_update",
+		"dash0_dashboards_delete",
+		"dash0_alerting_check_rules_create",
+		"dash0_alerting_check_rules_update",
+		"dash0_alerting_check_rules_delete",
+		"dash0_alerting_active_alerts",
+		"dash0_logs_send",
+		"dash0_spans_send",
+		"dash0_views_list",
+		"dash0_views_get",
+		"dash0_views_create",
+		"dash0_views_update",
+		"dash0_views_delete",
+		"dash0_sampling_rules_list",
+		"dash0_sampling_rules_create",
+		"dash0_synthetic_checks_create",
+		"dash0_synthetic_checks_delete",
+		"dash0_import_dashboard",
+		"dash0_import_check_rule",
+	}
+
+	for _, name := range shouldBeEnabled {
+		if !reg.IsEnabled(name) {
+			t.Errorf("minimal profile: %s should be enabled", name)
+		}
+	}
+
+	for _, name := range shouldBeDisabled {
+		if reg.IsEnabled(name) {
+			t.Errorf("minimal profile: %s should be disabled", name)
+		}
+	}
+
+	enabledCount := reg.EnabledCount()
+	if enabledCount != 8 {
+		t.Errorf("minimal profile: EnabledCount() = %d, want 8", enabledCount)
+		t.Logf("Enabled tools: %v", reg.EnabledToolNames())
+	}
+}
+
+func TestProfileReadonly_NoWriteTools(t *testing.T) {
+	reg := setupRegistryWithProfile(t, "readonly")
+
+	shouldBeEnabled := []string{
+		"dash0_dashboards_list",
+		"dash0_dashboards_get",
+		"dash0_alerting_check_rules_list",
+		"dash0_alerting_check_rules_get",
+		"dash0_synthetic_checks_list",
+		"dash0_synthetic_checks_get",
+		"dash0_sampling_rules_list",
+		"dash0_sampling_rules_get",
+		"dash0_views_list",
+		"dash0_views_get",
+		"dash0_logs_query",
+		"dash0_spans_query",
+	}
+
+	// All write operations should be disabled
+	shouldBeDisabled := []string{
+		"dash0_dashboards_create",
+		"dash0_dashboards_update",
+		"dash0_dashboards_delete",
+		"dash0_alerting_check_rules_create",
+		"dash0_alerting_check_rules_update",
+		"dash0_alerting_check_rules_delete",
+		"dash0_alerting_active_alerts",
+		"dash0_synthetic_checks_create",
+		"dash0_synthetic_checks_update",
+		"dash0_synthetic_checks_delete",
+		"dash0_sampling_rules_create",
+		"dash0_sampling_rules_update",
+		"dash0_sampling_rules_delete",
+		"dash0_views_create",
+		"dash0_views_update",
+		"dash0_views_delete",
+		"dash0_logs_send",
+		"dash0_spans_send",
+		"dash0_import_dashboard",
+		"dash0_import_check_rule",
+		"dash0_import_synthetic_check",
+		"dash0_import_view",
+	}
+
+	for _, name := range shouldBeEnabled {
+		if !reg.IsEnabled(name) {
+			t.Errorf("readonly profile: %s should be enabled", name)
+		}
+	}
+
+	for _, name := range shouldBeDisabled {
+		if reg.IsEnabled(name) {
+			t.Errorf("readonly profile: %s should be disabled", name)
+		}
+	}
+
+	enabledCount := reg.EnabledCount()
+	if enabledCount != 12 {
+		t.Errorf("readonly profile: EnabledCount() = %d, want 12", enabledCount)
+		t.Logf("Enabled tools: %v", reg.EnabledToolNames())
+	}
+}
+
+func TestProfileDemo_WorkflowTools(t *testing.T) {
+	reg := setupRegistryWithProfile(t, "demo")
+
+	shouldBeEnabled := []string{
+		"dash0_dashboards_list",
+		"dash0_dashboards_get",
+		"dash0_dashboards_create",
+		"dash0_dashboards_update",
+		"dash0_alerting_check_rules_list",
+		"dash0_alerting_check_rules_get",
+		"dash0_alerting_check_rules_create",
+		"dash0_alerting_check_rules_update",
+		"dash0_synthetic_checks_list",
+		"dash0_synthetic_checks_get",
+		"dash0_synthetic_checks_create",
+		"dash0_synthetic_checks_update",
+		"dash0_logs_query",
+		"dash0_spans_query",
+		"dash0_import_dashboard",
+		"dash0_import_check_rule",
+		"dash0_views_list",
+		"dash0_views_get",
+		"dash0_views_create",
+	}
+
+	shouldBeDisabled := []string{
+		"dash0_dashboards_delete",
+		"dash0_alerting_check_rules_delete",
+		"dash0_alerting_active_alerts",
+		"dash0_synthetic_checks_delete",
+		"dash0_sampling_rules_list",
+		"dash0_sampling_rules_create",
+		"dash0_sampling_rules_delete",
+		"dash0_views_delete",
+		"dash0_views_update",
+		"dash0_logs_send",
+		"dash0_spans_send",
+		"dash0_import_synthetic_check",
+		"dash0_import_view",
+	}
+
+	for _, name := range shouldBeEnabled {
+		if !reg.IsEnabled(name) {
+			t.Errorf("demo profile: %s should be enabled", name)
+		}
+	}
+
+	for _, name := range shouldBeDisabled {
+		if reg.IsEnabled(name) {
+			t.Errorf("demo profile: %s should be disabled", name)
+		}
+	}
+
+	enabledCount := reg.EnabledCount()
+	if enabledCount != 19 {
+		t.Errorf("demo profile: EnabledCount() = %d, want 19", enabledCount)
+		t.Logf("Enabled tools: %v", reg.EnabledToolNames())
+	}
+}
+
+func TestProfileDisabledToolCannotBeCalled(t *testing.T) {
+	reg := setupRegistryWithProfile(t, "minimal")
+	ctx := context.Background()
+
+	// dash0_dashboards_create should be disabled in minimal profile
+	result := reg.Call(ctx, "dash0_dashboards_create", map[string]interface{}{})
+	if result.Success {
+		t.Error("calling disabled tool should fail")
+	}
+	if result.Error == nil || result.Error.StatusCode != 403 {
+		t.Errorf("expected 403 error for disabled tool, got: %v", result.Error)
+	}
+}
+
+func TestProfileEnabledToolCanBeCalled(t *testing.T) {
+	reg := setupRegistryWithProfile(t, "minimal")
+
+	// dash0_logs_query is enabled in minimal - handler should exist
+	handler := reg.GetHandler("dash0_logs_query")
+	if handler == nil {
+		t.Error("handler for enabled tool dash0_logs_query should not be nil")
+	}
+}
+
+func TestProfileGetEnabledToolsExcludesDisabled(t *testing.T) {
+	reg := setupRegistryWithProfile(t, "readonly")
+
+	enabledTools := reg.GetEnabledTools()
+	enabledNames := make(map[string]bool)
+	for _, tool := range enabledTools {
+		enabledNames[tool.Name] = true
+	}
+
+	// Verify no write tools are in the enabled list
+	writeTools := []string{
+		"dash0_dashboards_create",
+		"dash0_dashboards_update",
+		"dash0_dashboards_delete",
+		"dash0_logs_send",
+		"dash0_spans_send",
+	}
+
+	for _, name := range writeTools {
+		if enabledNames[name] {
+			t.Errorf("readonly profile: GetEnabledTools() should not include %s", name)
+		}
+	}
+}
