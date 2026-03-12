@@ -37,7 +37,7 @@ go install github.com/npcomplete777/dash0-mcp/cmd/server@latest
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `DASH0_AUTH_TOKEN` | Yes | Bearer token for API authentication |
-| `DASH0_REGION` | No | Region: `eu-west-1` (default), `us-east-1`, or `us-west-2` |
+| `DASH0_REGION` | No | Region: `us-west-2` (default), `us-east-1`, or `eu-west-1` |
 | `DASH0_BASE_URL` | No | Custom base URL (overrides region) |
 | `DASH0_DATASET` | No | Dataset to use for all API calls (e.g., `otel-demo-gitops`) |
 | `DASH0_DEBUG` | No | Enable debug logging (`true`/`false`) |
@@ -118,7 +118,7 @@ Add to your Claude Desktop configuration (`claude_desktop_config.json`):
       "command": "/path/to/dash0-mcp",
       "env": {
         "DASH0_AUTH_TOKEN": "your-auth-token",
-        "DASH0_REGION": "eu-west-1",
+        "DASH0_REGION": "us-west-2",
         "DASH0_DATASET": "otel-demo-gitops",
         "DASH0_MCP_PROFILE": "full",
         "DASH0_MCP_CONFIG_DIR": "/path/to/dash0-mcp-server/config"
@@ -132,7 +132,7 @@ Add to your Claude Desktop configuration (`claude_desktop_config.json`):
 
 ```bash
 export DASH0_AUTH_TOKEN="your-auth-token"
-export DASH0_REGION="eu-west-1"
+export DASH0_REGION="us-west-2"
 export DASH0_DATASET="otel-demo-gitops"
 export DASH0_MCP_PROFILE="demo"
 ./dash0-mcp

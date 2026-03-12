@@ -47,7 +47,7 @@ func main() {
 			"DASH0_AUTH_TOKEN", "Bearer token for API authentication",
 		)
 		slog.Info("optional environment variables",
-			"DASH0_REGION", "Region (eu-west-1, us-east-1), default: eu-west-1",
+			"DASH0_REGION", "Region (us-west-2, us-east-1, eu-west-1), default: us-west-2",
 			"DASH0_BASE_URL", "Custom base URL (overrides region)",
 			"DASH0_DATASET", "Dataset to use for all API calls",
 			"DASH0_DEBUG", "Enable debug logging (true/false)",

@@ -30,7 +30,7 @@ func TestLoad(t *testing.T) {
 		wantDebug       bool
 	}{
 		{
-			name: "defaults to EU West 1",
+			name: "defaults to US West 2",
 			envVars: map[string]string{
 				"DASH0_AUTH_TOKEN": "test-token",
 				"DASH0_REGION":     "",
@@ -38,8 +38,8 @@ func TestLoad(t *testing.T) {
 				"DASH0_DEBUG":      "",
 			},
 			wantAuthToken: "test-token",
-			wantRegion:    RegionEUWest1,
-			wantBaseURL:   "https://api.eu-west-1.aws.dash0.com",
+			wantRegion:    RegionUSWest2,
+			wantBaseURL:   "https://api.us-west-2.aws.dash0.com",
 			wantDebug:     false,
 		},
 		{
@@ -90,8 +90,8 @@ func TestLoad(t *testing.T) {
 				"DASH0_DEBUG":      "true",
 			},
 			wantAuthToken: "test-token",
-			wantRegion:    RegionEUWest1,
-			wantBaseURL:   "https://api.eu-west-1.aws.dash0.com",
+			wantRegion:    RegionUSWest2,
+			wantBaseURL:   "https://api.us-west-2.aws.dash0.com",
 			wantDebug:     true,
 		},
 		{
@@ -103,8 +103,8 @@ func TestLoad(t *testing.T) {
 				"DASH0_DEBUG":      "1",
 			},
 			wantAuthToken: "test-token",
-			wantRegion:    RegionEUWest1,
-			wantBaseURL:   "https://api.eu-west-1.aws.dash0.com",
+			wantRegion:    RegionUSWest2,
+			wantBaseURL:   "https://api.us-west-2.aws.dash0.com",
 			wantDebug:     true,
 		},
 		{
@@ -116,8 +116,8 @@ func TestLoad(t *testing.T) {
 				"DASH0_DEBUG":      "yes",
 			},
 			wantAuthToken: "test-token",
-			wantRegion:    RegionEUWest1,
-			wantBaseURL:   "https://api.eu-west-1.aws.dash0.com",
+			wantRegion:    RegionUSWest2,
+			wantBaseURL:   "https://api.us-west-2.aws.dash0.com",
 			wantDebug:     true,
 		},
 		{
@@ -130,8 +130,8 @@ func TestLoad(t *testing.T) {
 				"DASH0_DEBUG":      "",
 			},
 			wantAuthToken: "fallback-token",
-			wantRegion:    RegionEUWest1,
-			wantBaseURL:   "https://api.eu-west-1.aws.dash0.com",
+			wantRegion:    RegionUSWest2,
+			wantBaseURL:   "https://api.us-west-2.aws.dash0.com",
 			wantDebug:     false,
 		},
 		{

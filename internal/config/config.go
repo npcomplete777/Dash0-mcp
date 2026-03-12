@@ -37,12 +37,12 @@ type Config struct {
 // Load reads configuration from environment variables.
 // Environment variables:
 //   - DASH0_AUTH_TOKEN (required): Bearer token for API authentication
-//   - DASH0_REGION (optional): Region (eu-west-1, us-east-1, us-west-2), defaults to eu-west-1
+//   - DASH0_REGION (optional): Region (us-west-2, us-east-1, eu-west-1), defaults to us-west-2
 //   - DASH0_BASE_URL (optional): Override the base URL (for custom deployments)
 //   - DASH0_DATASET (optional): Dataset to use for all API calls
 //   - DASH0_DEBUG (optional): Enable debug logging
 func Load() (*Config, error) {
-	regionEnv := coalesce(os.Getenv("DASH0_REGION"), string(RegionEUWest1))
+	regionEnv := coalesce(os.Getenv("DASH0_REGION"), string(RegionUSWest2))
 	baseURL := os.Getenv("DASH0_BASE_URL")
 
 	// Handle case where full URL is passed as DASH0_REGION
