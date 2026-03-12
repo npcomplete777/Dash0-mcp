@@ -4,15 +4,16 @@ A Model Context Protocol (MCP) server for the Dash0 Observability Platform, enab
 
 ## Features
 
+- **Telemetry Query**: Query logs and spans with rich filtering, markdown table output, and summary statistics (P95 latency, error rates, severity distribution)
 - **Telemetry Ingestion**: Send OTLP logs and spans to Dash0
-- **Telemetry Query**: Query logs and spans with filtering
-- **Dashboard Management**: Create, read, update, and delete dashboards
-- **Alerting**: Manage check rules (Prometheus-style alert rules)
+- **Dashboard Management**: Create, read, update, and delete Perses dashboards
+- **Alerting**: Manage check rules and view active firing/pending alerts
 - **Views**: Save and manage query views for logs and traces
 - **Synthetic Monitoring**: Configure synthetic checks for proactive monitoring
 - **Sampling Rules**: Control data ingestion rates and costs
 - **Migration**: Import configurations from other observability platforms
 - **Profile-based Tool Control**: Enable/disable tools via YAML configuration
+- **LLM-Optimized Output**: All tools return formatted markdown tables with summaries, statistics, and pagination hints — not raw JSON
 
 ## Installation
 
@@ -58,7 +59,7 @@ The server supports profile-based tool enablement, allowing you to control which
 
 | Profile | Tools | Description |
 |---------|-------|-------------|
-| `full` | 28 | All tools except destructive delete operations |
+| `full` | 34 | All tools except destructive delete operations |
 | `demo` | 19 | Workflow-focused tools for demos and VALIS integration |
 | `readonly` | 12 | Read-only operations (list/get only) |
 | `minimal` | 8 | Core query operations only |
@@ -155,8 +156,8 @@ DASH0_MCP_PROFILE=full ./dash0-mcp
 
 | Tool | Description |
 |------|-------------|
-| `dash0_logs_query` | Query logs with filtering by service, severity, time range |
-| `dash0_spans_query` | Query spans/traces with filtering by service, HTTP method, errors |
+| `dash0_logs_query` | Query logs with filtering by service, severity, body text, time range. Returns markdown table with severity distribution, trace correlation %, top services/pods |
+| `dash0_spans_query` | Query spans/traces with filtering by service, HTTP method, status code, min duration, errors. Returns markdown table with P95/avg/max latency, error rate, has_children, span kind, K8s pod |
 
 ### Telemetry Ingestion
 
@@ -169,11 +170,12 @@ DASH0_MCP_PROFILE=full ./dash0-mcp
 
 | Tool | Description |
 |------|-------------|
-| `dash0_alerting_check_rules_list` | List all check rules |
+| `dash0_alerting_check_rules_list` | List all check rules with formatted markdown table |
 | `dash0_alerting_check_rules_get` | Get a specific check rule |
 | `dash0_alerting_check_rules_create` | Create a new check rule |
 | `dash0_alerting_check_rules_update` | Update an existing check rule |
 | `dash0_alerting_check_rules_delete` | Delete a check rule |
+| `dash0_alerting_active_alerts` | List currently firing and pending alerts with severity, duration, and labels |
 
 ### Dashboards
 
@@ -199,7 +201,7 @@ DASH0_MCP_PROFILE=full ./dash0-mcp
 
 | Tool | Description |
 |------|-------------|
-| `dash0_synthetic_checks_list` | List all synthetic checks |
+| `dash0_synthetic_checks_list` | List all synthetic checks with kind, interval, locations, and URL |
 | `dash0_synthetic_checks_get` | Get a specific synthetic check |
 | `dash0_synthetic_checks_create` | Create a new synthetic check |
 | `dash0_synthetic_checks_update` | Update an existing synthetic check |
@@ -262,10 +264,44 @@ Assistant: [Uses dash0_import_dashboard with the provided JSON]
 | US East 1 (Virginia) | `https://api.us-east-1.aws.dash0.com` |
 | US West 2 (Oregon) | `https://api.us-west-2.aws.dash0.com` |
 
+## Output Format
+
+All tools return **LLM-optimized markdown** instead of raw JSON. This dramatically improves AI assistant comprehension and response quality.
+
+### Span Query Output
+
+Span queries return a markdown table with columns: Service, Name, Kind, Duration, Status, HTTP, Pod, Children, Trace ID — plus a stats block:
+
+```
+## Span Query Results
+**Found 42 spans** | Time: 14:30:00 → 15:30:00 2026-01-15 | Filters: service=cart-service
+
+> **Stats:** Avg: 45.2ms | P95: 210.5ms | Max: 892.0ms | Error rate: 4.8% (2/42) | Services: cart-service (42) | Ops: GET /api/cart (18), POST /api/checkout (12)
+
+| # | Service | Name | Kind | Duration | Status | HTTP | Pod | Children | Trace ID |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | cart-service | GET /api/cart | SERVER | 45.2ms | OK | GET 200 /api/cart | cart-pod-abc | yes | abc123def456... |
+```
+
+### Log Query Output
+
+Log queries include severity distribution, trace correlation, and top pods:
+
+```
+> **Stats:** ERROR: 12 | WARN: 28 | INFO: 156 | Services: cart-service (120), api-gateway (76) | With traces: 85% | Pods: cart-pod-1 (80), cart-pod-2 (40)
+```
+
+### List Endpoints
+
+All list endpoints (dashboards, views, sampling rules, etc.) return formatted tables with name, kind, and origin extracted from Kubernetes CRD metadata.
+
 ## Architecture
 
 ### Key Design Decisions
 
+- **Markdown-first output**: Tools set `ToolResult.Markdown` for pre-formatted text; the MCP handler serves it directly, bypassing JSON marshaling. Write operations still return JSON.
+- **OTLP flattening with field enrichment**: Span and log queries flatten nested OTLP structures and extract K8s metadata (pod name, namespace, container), span kind, event/link counts, and parent-child relationships
+- **Summary statistics**: Span queries compute avg/P95/max duration, error rate, and top services/operations. Log queries compute severity distribution, trace correlation %, and top pods.
 - **Shared OTLP types**: Common telemetry query types (`AttributeFilter`, `TimeRange`, `Pagination`) are defined once in `internal/otlp/` and shared by logs and spans packages
 - **ToolProvider interface**: All 8 domain packages implement `registry.ToolProvider` with compile-time verification (`var _ registry.ToolProvider = (*Tools)(nil)`)
 - **HTTP retry logic**: The client automatically retries on HTTP 429 (rate limit) and 503 (service unavailable) with exponential backoff and `Retry-After` header support
@@ -288,6 +324,8 @@ dash0-mcp/
 │   ├── config/           # Configuration management
 │   │   ├── config.go     # Auth/region config + validation
 │   │   └── tools.go      # Tool profile config
+│   ├── formatter/        # Markdown output formatting
+│   │   └── markdown.go   # Table rendering, duration formatting, list formatting
 │   ├── otlp/             # Shared OpenTelemetry types
 │   │   ├── types.go      # AttributeFilter, TimeRange, Pagination
 │   │   └── extract.go    # ExtractServiceName helper
