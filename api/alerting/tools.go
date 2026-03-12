@@ -4,14 +4,18 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"strings"
+	"time"
 
 	"github.com/npcomplete777/dash0-mcp/internal/client"
+	"github.com/npcomplete777/dash0-mcp/internal/formatter"
 	"github.com/npcomplete777/dash0-mcp/internal/registry"
 	mcp "github.com/mark3labs/mcp-go/mcp"
 )
 
 const (
-	basePath = "/api/alerting/check-rules"
+	basePath   = "/api/alerting/check-rules"
+	alertsPath = "/api/alerting/alerts"
 )
 
 // Compile-time interface check.
@@ -35,6 +39,7 @@ func (p *Tools) Tools() []mcp.Tool {
 		p.CreateCheckRule(),
 		p.UpdateCheckRule(),
 		p.DeleteCheckRule(),
+		p.ActiveAlerts(),
 	}
 }
 
@@ -46,6 +51,7 @@ func (p *Tools) Handlers() map[string]func(context.Context, map[string]interface
 		"dash0_alerting_check_rules_create": p.CreateCheckRuleHandler,
 		"dash0_alerting_check_rules_update": p.UpdateCheckRuleHandler,
 		"dash0_alerting_check_rules_delete": p.DeleteCheckRuleHandler,
+		"dash0_alerting_active_alerts":      p.ActiveAlertsHandler,
 	}
 }
 
@@ -63,7 +69,98 @@ func (p *Tools) ListCheckRules() mcp.Tool {
 
 // ListCheckRulesHandler handles the dash0_alerting_check_rules_list tool.
 func (p *Tools) ListCheckRulesHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
-	return p.client.Get(ctx, basePath)
+	result := p.client.Get(ctx, basePath)
+	if result.Success {
+		result.Markdown = formatCheckRulesList(result.Data)
+	}
+	return result
+}
+
+// formatCheckRulesList formats check rules as a markdown table.
+func formatCheckRulesList(data interface{}) string {
+	items := extractItems(data)
+	if len(items) == 0 {
+		return "## Check Rules\n\nNo check rules found.\n"
+	}
+
+	headers := []string{"#", "Name", "Expression", "Interval", "For", "Severity", "Origin"}
+	var rows [][]string
+
+	for i, item := range items {
+		m, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		name := extractField(m, "name")
+		expr := extractField(m, "expression")
+		interval := extractField(m, "interval")
+		forDur := extractField(m, "for")
+		severity := ""
+		if labels, ok := m["labels"].(map[string]interface{}); ok {
+			severity = fmt.Sprintf("%v", labels["severity"])
+			if severity == "<nil>" {
+				severity = ""
+			}
+		}
+		origin := extractNestedField(m, "metadata", "origin")
+		if origin == "" {
+			origin = extractField(m, "origin")
+		}
+
+		rows = append(rows, []string{
+			fmt.Sprintf("%d", i+1),
+			formatter.Truncate(name, 30),
+			formatter.Truncate(expr, 50),
+			interval,
+			forDur,
+			severity,
+			formatter.Truncate(origin, 30),
+		})
+	}
+
+	summary := fmt.Sprintf("**Found %d check rules**", len(rows))
+	return formatter.Table("Check Rules", summary, headers, rows, "")
+}
+
+// extractItems tries to get a slice of items from various response shapes.
+func extractItems(data interface{}) []interface{} {
+	if data == nil {
+		return nil
+	}
+	if arr, ok := data.([]interface{}); ok {
+		return arr
+	}
+	if m, ok := data.(map[string]interface{}); ok {
+		for _, key := range []string{"items", "data", "results", "rules"} {
+			if arr, ok := m[key].([]interface{}); ok {
+				return arr
+			}
+		}
+	}
+	return nil
+}
+
+func extractField(m map[string]interface{}, key string) string {
+	if v, ok := m[key]; ok && v != nil {
+		return fmt.Sprintf("%v", v)
+	}
+	return ""
+}
+
+func extractNestedField(m map[string]interface{}, keys ...string) string {
+	current := m
+	for i, key := range keys {
+		if i == len(keys)-1 {
+			return extractField(current, key)
+		}
+		next, ok := current[key].(map[string]interface{})
+		if !ok {
+			return ""
+		}
+		current = next
+	}
+	return ""
 }
 
 // GetCheckRule returns the dash0_alerting_check_rules_get tool definition.
@@ -282,6 +379,149 @@ func (p *Tools) DeleteCheckRuleHandler(ctx context.Context, args map[string]inte
 
 	path := fmt.Sprintf(basePath+"/%s", url.PathEscape(originOrID))
 	return p.client.Delete(ctx, path)
+}
+
+// ActiveAlerts returns the dash0_alerting_active_alerts tool definition.
+func (p *Tools) ActiveAlerts() mcp.Tool {
+	return mcp.Tool{
+		Name:        "dash0_alerting_active_alerts",
+		Description: "List currently firing and pending alerts in Dash0. Shows active alert instances with severity, duration, and labels - unlike check_rules_list which shows rule definitions.",
+		InputSchema: mcp.ToolInputSchema{
+			Type: "object",
+			Properties: map[string]interface{}{
+				"state": map[string]interface{}{
+					"type":        "string",
+					"description": "Filter alerts by state. Use 'firing' for actively firing alerts, 'pending' for alerts waiting to fire, or 'all' for both.",
+					"enum":        []interface{}{"firing", "pending", "all"},
+					"default":     "all",
+				},
+			},
+		},
+	}
+}
+
+// ActiveAlertsHandler handles the dash0_alerting_active_alerts tool.
+func (p *Tools) ActiveAlertsHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
+	path := alertsPath
+
+	state, _ := args["state"].(string)
+	if state != "" && state != "all" {
+		path = fmt.Sprintf("%s?state=%s", alertsPath, url.QueryEscape(state))
+	}
+
+	result := p.client.Get(ctx, path)
+	if result.Success {
+		result.Markdown = formatActiveAlerts(result.Data, state)
+	}
+	return result
+}
+
+// formatActiveAlerts formats active alert instances as a markdown table.
+func formatActiveAlerts(data interface{}, stateFilter string) string {
+	items := extractItems(data)
+	if len(items) == 0 {
+		return "## Active Alerts\n\nNo active alerts found.\n"
+	}
+
+	headers := []string{"#", "Name", "State", "Severity", "Since", "Duration", "Labels"}
+	var rows [][]string
+	var firingCount, pendingCount int
+
+	for i, item := range items {
+		m, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		name := extractField(m, "name")
+		if name == "" {
+			name = extractNestedField(m, "labels", "alertname")
+		}
+
+		state := extractField(m, "state")
+		switch state {
+		case "firing":
+			firingCount++
+		case "pending":
+			pendingCount++
+		}
+
+		severity := extractNestedField(m, "labels", "severity")
+		if severity == "" {
+			severity = extractField(m, "severity")
+		}
+
+		activeAt := extractField(m, "activeAt")
+		if activeAt == "" {
+			activeAt = extractField(m, "startsAt")
+		}
+
+		duration := ""
+		if activeAt != "" {
+			if t, err := time.Parse(time.RFC3339, activeAt); err == nil {
+				dur := time.Since(t)
+				duration = formatAlertDuration(dur)
+			}
+			// Shorten the timestamp for display
+			if len(activeAt) > 19 {
+				activeAt = activeAt[:19]
+			}
+		}
+
+		// Collect labels, excluding alertname and severity (already shown).
+		labelStr := ""
+		if labels, ok := m["labels"].(map[string]interface{}); ok {
+			var parts []string
+			for k, v := range labels {
+				if k == "alertname" || k == "severity" {
+					continue
+				}
+				parts = append(parts, fmt.Sprintf("%s=%v", k, v))
+			}
+			labelStr = formatter.Truncate(strings.Join(parts, ", "), 50)
+		}
+
+		rows = append(rows, []string{
+			fmt.Sprintf("%d", i+1),
+			formatter.Truncate(name, 30),
+			state,
+			severity,
+			activeAt,
+			duration,
+			labelStr,
+		})
+	}
+
+	total := firingCount + pendingCount
+	if total == 0 {
+		total = len(rows)
+	}
+	summary := fmt.Sprintf("**%d active alerts** (%d firing, %d pending)", total, firingCount, pendingCount)
+	return formatter.Table("Active Alerts", summary, headers, rows, "")
+}
+
+// formatAlertDuration formats a duration into a human-readable string for alerts.
+func formatAlertDuration(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	}
+	if d < 24*time.Hour {
+		h := int(d.Hours())
+		m := int(d.Minutes()) % 60
+		if m > 0 {
+			return fmt.Sprintf("%dh%dm", h, m)
+		}
+		return fmt.Sprintf("%dh", h)
+	}
+	days := int(d.Hours()) / 24
+	h := int(d.Hours()) % 24
+	if h > 0 {
+		return fmt.Sprintf("%dd%dh", days, h)
+	}
+	return fmt.Sprintf("%dd", days)
 }
 
 // Register registers all alerting tools with the registry.

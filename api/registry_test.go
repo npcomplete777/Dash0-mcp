@@ -168,8 +168,8 @@ func TestRegistryExpectedToolCount(t *testing.T) {
 	// syntheticchecks: 5 (list, get, create, update, delete)
 	// samplingrules: 5 (list, get, create, update, delete)
 	// imports: 4 (check_rule, dashboard, synthetic_check, view)
-	// Total: 2 + 2 + 5 + 5 + 5 + 5 + 5 + 4 = 33
-	expectedCount := 33
+	// Total: 2 + 2 + 6 + 5 + 5 + 5 + 5 + 4 = 34
+	expectedCount := 34
 
 	actualCount := reg.ToolCount()
 	if actualCount != expectedCount {

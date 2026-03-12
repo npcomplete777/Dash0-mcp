@@ -378,6 +378,104 @@ func TestQueryLogsHandler(t *testing.T) {
 	}
 }
 
+func TestQueryLogsHandler_MarkdownOutput(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		response := map[string]interface{}{
+			"resourceLogs": []interface{}{
+				map[string]interface{}{
+					"resource": map[string]interface{}{
+						"attributes": []interface{}{
+							map[string]interface{}{
+								"key":   "service.name",
+								"value": map[string]interface{}{"stringValue": "frontend"},
+							},
+							map[string]interface{}{
+								"key":   "k8s.pod.name",
+								"value": map[string]interface{}{"stringValue": "frontend-pod-xyz"},
+							},
+							map[string]interface{}{
+								"key":   "k8s.namespace.name",
+								"value": map[string]interface{}{"stringValue": "production"},
+							},
+							map[string]interface{}{
+								"key":   "k8s.container.name",
+								"value": map[string]interface{}{"stringValue": "frontend-container"},
+							},
+						},
+					},
+					"scopeLogs": []interface{}{
+						map[string]interface{}{
+							"logRecords": []interface{}{
+								map[string]interface{}{
+									"timeUnixNano":   "1704067200000000000",
+									"severityText":   "ERROR",
+									"severityNumber": float64(17),
+									"body":           map[string]interface{}{"stringValue": "Failed to connect to database"},
+									"traceId":        "trace-abc-123",
+									"spanId":         "span-def-456",
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+		json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	c := client.NewWithBaseURL(server.URL, "test-token")
+	pkg := New(c)
+
+	result := pkg.QueryLogsHandler(context.Background(), map[string]interface{}{
+		"service_name": "frontend",
+	})
+
+	if !result.Success {
+		t.Fatalf("expected success, got: %v", result.Error)
+	}
+
+	if result.Markdown == "" {
+		t.Fatal("expected Markdown to be set")
+	}
+
+	md := result.Markdown
+	if !strings.Contains(md, "## Log Query Results") {
+		t.Error("markdown should contain title")
+	}
+	if !strings.Contains(md, "**Found 1 logs**") {
+		t.Error("markdown should contain count")
+	}
+	if !strings.Contains(md, "frontend") {
+		t.Error("markdown should contain service name")
+	}
+	if !strings.Contains(md, "ERROR") {
+		t.Error("markdown should contain severity")
+	}
+	if !strings.Contains(md, "Failed to connect") {
+		t.Error("markdown should contain log body")
+	}
+	if !strings.Contains(md, "frontend-pod-xyz") {
+		t.Error("markdown should contain pod name")
+	}
+	if !strings.Contains(md, "service=frontend") {
+		t.Error("markdown should contain filter description")
+	}
+
+	// Verify K8s fields in structured data
+	data := result.Data.(map[string]interface{})
+	logs := data["logs"].([]FlatLog)
+	if logs[0].K8sNamespace != "production" {
+		t.Errorf("K8sNamespace = %s, want production", logs[0].K8sNamespace)
+	}
+	if logs[0].K8sPodName != "frontend-pod-xyz" {
+		t.Errorf("K8sPodName = %s, want frontend-pod-xyz", logs[0].K8sPodName)
+	}
+	if logs[0].K8sContainerName != "frontend-container" {
+		t.Errorf("K8sContainerName = %s, want frontend-container", logs[0].K8sContainerName)
+	}
+}
+
 func TestFlattenLogsResponse(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -400,12 +498,12 @@ func TestFlattenLogsResponse(t *testing.T) {
 			wantLogs: 0,
 		},
 		{
-			name: "invalid resourceLogs type",
-			data: map[string]interface{}{"resourceLogs": "invalid"},
+			name:     "invalid resourceLogs type",
+			data:     map[string]interface{}{"resourceLogs": "invalid"},
 			wantLogs: 0,
 		},
 		{
-			name: "single log record",
+			name: "single log record with K8s info",
 			data: map[string]interface{}{
 				"resourceLogs": []interface{}{
 					map[string]interface{}{
@@ -414,6 +512,18 @@ func TestFlattenLogsResponse(t *testing.T) {
 								map[string]interface{}{
 									"key":   "service.name",
 									"value": map[string]interface{}{"stringValue": "my-service"},
+								},
+								map[string]interface{}{
+									"key":   "k8s.pod.name",
+									"value": map[string]interface{}{"stringValue": "pod-abc"},
+								},
+								map[string]interface{}{
+									"key":   "k8s.namespace.name",
+									"value": map[string]interface{}{"stringValue": "default"},
+								},
+								map[string]interface{}{
+									"key":   "k8s.container.name",
+									"value": map[string]interface{}{"stringValue": "main"},
 								},
 							},
 						},
@@ -496,11 +606,65 @@ func TestFlattenLogsResponse(t *testing.T) {
 	}
 }
 
+func TestFlattenLogsResponse_K8sFields(t *testing.T) {
+	data := map[string]interface{}{
+		"resourceLogs": []interface{}{
+			map[string]interface{}{
+				"resource": map[string]interface{}{
+					"attributes": []interface{}{
+						map[string]interface{}{
+							"key":   "service.name",
+							"value": map[string]interface{}{"stringValue": "test-svc"},
+						},
+						map[string]interface{}{
+							"key":   "k8s.pod.name",
+							"value": map[string]interface{}{"stringValue": "my-pod"},
+						},
+						map[string]interface{}{
+							"key":   "k8s.namespace.name",
+							"value": map[string]interface{}{"stringValue": "my-ns"},
+						},
+						map[string]interface{}{
+							"key":   "k8s.container.name",
+							"value": map[string]interface{}{"stringValue": "my-container"},
+						},
+					},
+				},
+				"scopeLogs": []interface{}{
+					map[string]interface{}{
+						"logRecords": []interface{}{
+							map[string]interface{}{
+								"body": map[string]interface{}{"stringValue": "test"},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	logs := flattenLogsResponse(data)
+	if len(logs) != 1 {
+		t.Fatalf("expected 1 log, got %d", len(logs))
+	}
+
+	log := logs[0]
+	if log.K8sPodName != "my-pod" {
+		t.Errorf("K8sPodName = %s, want my-pod", log.K8sPodName)
+	}
+	if log.K8sNamespace != "my-ns" {
+		t.Errorf("K8sNamespace = %s, want my-ns", log.K8sNamespace)
+	}
+	if log.K8sContainerName != "my-container" {
+		t.Errorf("K8sContainerName = %s, want my-container", log.K8sContainerName)
+	}
+}
+
 func TestExtractServiceName(t *testing.T) {
 	tests := []struct {
-		name   string
-		rlMap  map[string]interface{}
-		want   string
+		name  string
+		rlMap map[string]interface{}
+		want  string
 	}{
 		{
 			name:  "nil resource",
@@ -549,6 +713,61 @@ func TestExtractServiceName(t *testing.T) {
 			got := extractServiceName(tt.rlMap)
 			if got != tt.want {
 				t.Errorf("extractServiceName() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestExtractResourceAttribute(t *testing.T) {
+	tests := []struct {
+		name  string
+		rlMap map[string]interface{}
+		key   string
+		want  string
+	}{
+		{
+			name:  "empty resource",
+			rlMap: map[string]interface{}{},
+			key:   "k8s.pod.name",
+			want:  "",
+		},
+		{
+			name: "attribute found",
+			rlMap: map[string]interface{}{
+				"resource": map[string]interface{}{
+					"attributes": []interface{}{
+						map[string]interface{}{
+							"key":   "k8s.namespace.name",
+							"value": map[string]interface{}{"stringValue": "production"},
+						},
+					},
+				},
+			},
+			key:  "k8s.namespace.name",
+			want: "production",
+		},
+		{
+			name: "attribute not found",
+			rlMap: map[string]interface{}{
+				"resource": map[string]interface{}{
+					"attributes": []interface{}{
+						map[string]interface{}{
+							"key":   "other.key",
+							"value": map[string]interface{}{"stringValue": "val"},
+						},
+					},
+				},
+			},
+			key:  "k8s.pod.name",
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractResourceAttribute(tt.rlMap, tt.key)
+			if got != tt.want {
+				t.Errorf("extractResourceAttribute(%s) = %q, want %q", tt.key, got, tt.want)
 			}
 		})
 	}
@@ -714,5 +933,82 @@ func TestSeverityOrder(t *testing.T) {
 	}
 	if severityOrder["ERROR"] >= severityOrder["FATAL"] {
 		t.Error("ERROR should be less than FATAL")
+	}
+}
+
+func TestQueryLogsHandler_NegativeTimeRange(t *testing.T) {
+	c := client.NewWithBaseURL("http://example.com", "test-token")
+	pkg := New(c)
+
+	result := pkg.QueryLogsHandler(context.Background(), map[string]interface{}{
+		"time_range_minutes": float64(-10),
+	})
+
+	if result.Success {
+		t.Error("expected error for negative time range")
+	}
+}
+
+func TestQueryLogsHandler_NegativeLimit(t *testing.T) {
+	c := client.NewWithBaseURL("http://example.com", "test-token")
+	pkg := New(c)
+
+	result := pkg.QueryLogsHandler(context.Background(), map[string]interface{}{
+		"limit": float64(-5),
+	})
+
+	if result.Success {
+		t.Error("expected error for negative limit")
+	}
+}
+
+func TestBuildLogStats(t *testing.T) {
+	logs := []FlatLog{
+		{SeverityText: "ERROR", ServiceName: "svc-a", K8sPodName: "pod-1", TraceID: "t1"},
+		{SeverityText: "ERROR", ServiceName: "svc-a", K8sPodName: "pod-1", TraceID: "t2"},
+		{SeverityText: "INFO", ServiceName: "svc-b", K8sPodName: "pod-2", TraceID: ""},
+		{SeverityText: "WARN", ServiceName: "svc-a", K8sPodName: "", TraceID: "t3"},
+	}
+
+	result := buildLogStats(logs)
+
+	if !strings.Contains(result, "**Stats:**") {
+		t.Error("should contain Stats header")
+	}
+	if !strings.Contains(result, "ERROR: 2") {
+		t.Error("should show ERROR count")
+	}
+	if !strings.Contains(result, "WARN: 1") {
+		t.Error("should show WARN count")
+	}
+	if !strings.Contains(result, "INFO: 1") {
+		t.Error("should show INFO count")
+	}
+	if !strings.Contains(result, "Services:") {
+		t.Error("should contain services")
+	}
+	if !strings.Contains(result, "svc-a") {
+		t.Error("should contain svc-a")
+	}
+	if !strings.Contains(result, "With traces: 75%") {
+		t.Errorf("should show 75%% trace correlation, got: %s", result)
+	}
+	if !strings.Contains(result, "Pods:") {
+		t.Error("should contain pods")
+	}
+}
+
+func TestBuildLogStats_EmptyLogs(t *testing.T) {
+	logs := []FlatLog{
+		{SeverityText: "", ServiceName: "", TraceID: ""},
+	}
+
+	result := buildLogStats(logs)
+
+	if !strings.Contains(result, "UNSET: 1") {
+		t.Errorf("should show UNSET for empty severity, got: %s", result)
+	}
+	if !strings.Contains(result, "With traces: 0%") {
+		t.Errorf("should show 0%% trace correlation, got: %s", result)
 	}
 }

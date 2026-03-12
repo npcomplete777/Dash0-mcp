@@ -60,6 +60,9 @@ type ToolResult struct {
 	Data    interface{} `json:"data,omitempty"`
 	Error   *APIError   `json:"error,omitempty"`
 	Meta    interface{} `json:"meta,omitempty"`
+	// Markdown is pre-formatted markdown text for the MCP response.
+	// When set, it is used instead of JSON-marshaling Data.
+	Markdown string `json:"-"`
 }
 
 // APIError represents a Dash0 API error.

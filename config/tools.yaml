@@ -73,6 +73,11 @@ tools:
       description: "Delete a check rule (DESTRUCTIVE)"
       dangerous: true
 
+    dash0_alerting_active_alerts:
+      enabled: true
+      description: "List currently firing and pending alert instances"
+      dangerous: false
+
   #############################################################################
   # SYNTHETIC CHECKS
   #############################################################################

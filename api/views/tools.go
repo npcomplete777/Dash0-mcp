@@ -6,6 +6,7 @@ import (
 	"net/url"
 
 	"github.com/npcomplete777/dash0-mcp/internal/client"
+	"github.com/npcomplete777/dash0-mcp/internal/formatter"
 	"github.com/npcomplete777/dash0-mcp/internal/registry"
 	mcp "github.com/mark3labs/mcp-go/mcp"
 )
@@ -63,7 +64,11 @@ func (p *Tools) ListViews() mcp.Tool {
 
 // ListViewsHandler handles the dash0_views_list tool.
 func (p *Tools) ListViewsHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
-	return p.client.Get(ctx, basePath)
+	result := p.client.Get(ctx, basePath)
+	if result.Success {
+		result.Markdown = formatter.FormatListResponse("Views", result.Data)
+	}
+	return result
 }
 
 // GetView returns the dash0_views_get tool definition.

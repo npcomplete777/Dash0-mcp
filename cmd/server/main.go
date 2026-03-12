@@ -137,6 +137,11 @@ func main() {
 				return mcp.NewToolResultError(result.Error.Detail), nil
 			}
 
+			// Use pre-formatted markdown if available, otherwise JSON
+			if result.Markdown != "" {
+				return mcp.NewToolResultText(result.Markdown), nil
+			}
+
 			// Marshal data to JSON
 			data, err := json.Marshal(result.Data)
 			if err != nil {

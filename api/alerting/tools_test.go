@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/npcomplete777/dash0-mcp/internal/client"
 )
@@ -26,8 +27,8 @@ func TestTools(t *testing.T) {
 	pkg := New(&client.Client{})
 	tools := pkg.Tools()
 
-	if len(tools) != 5 {
-		t.Errorf("Tools() returned %d tools, expected 5", len(tools))
+	if len(tools) != 6 {
+		t.Errorf("Tools() returned %d tools, expected 6", len(tools))
 	}
 
 	expectedNames := map[string]bool{
@@ -36,6 +37,7 @@ func TestTools(t *testing.T) {
 		"dash0_alerting_check_rules_create": false,
 		"dash0_alerting_check_rules_update": false,
 		"dash0_alerting_check_rules_delete": false,
+		"dash0_alerting_active_alerts":      false,
 	}
 
 	for _, tool := range tools {
@@ -62,6 +64,7 @@ func TestHandlers(t *testing.T) {
 		"dash0_alerting_check_rules_create",
 		"dash0_alerting_check_rules_update",
 		"dash0_alerting_check_rules_delete",
+		"dash0_alerting_active_alerts",
 	}
 
 	if len(handlers) != len(expectedHandlers) {
@@ -484,15 +487,189 @@ func TestToolNamingConvention(t *testing.T) {
 	tools := pkg.Tools()
 
 	for _, tool := range tools {
-		// All alerting tools should start with dash0_alerting_check_rules_
-		if !strings.HasPrefix(tool.Name, "dash0_alerting_check_rules_") {
-			t.Errorf("Tool %s does not follow naming convention dash0_alerting_check_rules_*", tool.Name)
+		// All alerting tools should start with dash0_alerting_
+		if !strings.HasPrefix(tool.Name, "dash0_alerting_") {
+			t.Errorf("Tool %s does not follow naming convention dash0_alerting_*", tool.Name)
 		}
 
 		// Should use underscores, not hyphens
 		if strings.Contains(tool.Name, "-") {
 			t.Errorf("Tool %s should use underscores, not hyphens", tool.Name)
 		}
+	}
+}
+
+func TestActiveAlertsToolDefinition(t *testing.T) {
+	pkg := New(&client.Client{})
+	tool := pkg.ActiveAlerts()
+
+	if tool.Name != "dash0_alerting_active_alerts" {
+		t.Errorf("ActiveAlerts() name = %s, expected dash0_alerting_active_alerts", tool.Name)
+	}
+
+	if tool.Description == "" {
+		t.Error("ActiveAlerts() has empty description")
+	}
+
+	if _, ok := tool.InputSchema.Properties["state"]; !ok {
+		t.Error("ActiveAlerts() missing 'state' property")
+	}
+
+	// state should be optional (no required fields)
+	if len(tool.InputSchema.Required) != 0 {
+		t.Error("ActiveAlerts() should have no required parameters")
+	}
+}
+
+func TestActiveAlertsHandler(t *testing.T) {
+	tests := []struct {
+		name           string
+		args           map[string]interface{}
+		serverResponse interface{}
+		checkPath      string
+	}{
+		{
+			name: "no state filter",
+			args: map[string]interface{}{},
+			serverResponse: []interface{}{
+				map[string]interface{}{
+					"name":  "HighLatency",
+					"state": "firing",
+					"labels": map[string]interface{}{
+						"severity": "critical",
+					},
+				},
+			},
+			checkPath: "/api/alerting/alerts",
+		},
+		{
+			name: "firing filter",
+			args: map[string]interface{}{
+				"state": "firing",
+			},
+			serverResponse: []interface{}{},
+			checkPath:      "/api/alerting/alerts?state=firing",
+		},
+		{
+			name: "all state means no filter",
+			args: map[string]interface{}{
+				"state": "all",
+			},
+			serverResponse: []interface{}{},
+			checkPath:      "/api/alerting/alerts",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var receivedPath string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				receivedPath = r.URL.RequestURI()
+				w.WriteHeader(http.StatusOK)
+				json.NewEncoder(w).Encode(tt.serverResponse)
+			}))
+			defer server.Close()
+
+			c := client.NewWithBaseURL(server.URL, "test-token")
+			pkg := New(c)
+			result := pkg.ActiveAlertsHandler(context.Background(), tt.args)
+
+			if !result.Success {
+				t.Errorf("expected success, got error: %v", result.Error)
+			}
+
+			if receivedPath != tt.checkPath {
+				t.Errorf("path = %s, expected %s", receivedPath, tt.checkPath)
+			}
+		})
+	}
+}
+
+func TestActiveAlertsHandler_Markdown(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode([]interface{}{
+			map[string]interface{}{
+				"name":     "HighLatency",
+				"state":    "firing",
+				"activeAt": "2026-01-01T00:00:00Z",
+				"labels": map[string]interface{}{
+					"alertname": "HighLatency",
+					"severity":  "critical",
+					"service":   "api",
+				},
+			},
+			map[string]interface{}{
+				"name":     "DiskFull",
+				"state":    "pending",
+				"startsAt": "2026-01-01T00:00:00Z",
+				"labels": map[string]interface{}{
+					"severity": "warning",
+				},
+			},
+		})
+	}))
+	defer server.Close()
+
+	c := client.NewWithBaseURL(server.URL, "test-token")
+	pkg := New(c)
+	result := pkg.ActiveAlertsHandler(context.Background(), map[string]interface{}{})
+
+	if !result.Success {
+		t.Fatalf("expected success: %v", result.Error)
+	}
+
+	md := result.Markdown
+	if md == "" {
+		t.Fatal("expected markdown output")
+	}
+	if !strings.Contains(md, "Active Alerts") {
+		t.Error("missing title")
+	}
+	if !strings.Contains(md, "HighLatency") {
+		t.Error("missing alert name")
+	}
+	if !strings.Contains(md, "firing") {
+		t.Error("missing state")
+	}
+	if !strings.Contains(md, "critical") {
+		t.Error("missing severity")
+	}
+	if !strings.Contains(md, "1 firing") {
+		t.Error("should show 1 firing count")
+	}
+	if !strings.Contains(md, "1 pending") {
+		t.Error("should show 1 pending count")
+	}
+}
+
+func TestFormatActiveAlerts_Empty(t *testing.T) {
+	result := formatActiveAlerts([]interface{}{}, "")
+	if !strings.Contains(result, "No active alerts found") {
+		t.Error("should show empty message")
+	}
+}
+
+func TestFormatAlertDuration(t *testing.T) {
+	tests := []struct {
+		name     string
+		d        time.Duration
+		expected string
+	}{
+		{"seconds", 30 * time.Second, "30s"},
+		{"minutes", 5 * time.Minute, "5m"},
+		{"hours", 2 * time.Hour, "2h"},
+		{"hours and minutes", 2*time.Hour + 30*time.Minute, "2h30m"},
+		{"days", 48 * time.Hour, "2d"},
+		{"days and hours", 50 * time.Hour, "2d2h"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := formatAlertDuration(tt.d)
+			if result != tt.expected {
+				t.Errorf("formatAlertDuration(%v) = %s, want %s", tt.d, result, tt.expected)
+			}
+		})
 	}
 }
 

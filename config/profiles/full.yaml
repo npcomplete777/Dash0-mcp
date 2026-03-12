@@ -10,7 +10,7 @@ description: "Full Dash0 API coverage minus destructive deletes"
 
 enable_all: true
 
-# Disable only destructive operations by default
+# Disable destructive operations only
 disable:
   - dash0_dashboards_delete
   - dash0_alerting_check_rules_delete

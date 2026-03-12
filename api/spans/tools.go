@@ -2,11 +2,15 @@ package spans
 
 import (
 	"context"
+	"fmt"
+	"math"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/npcomplete777/dash0-mcp/internal/client"
+	"github.com/npcomplete777/dash0-mcp/internal/formatter"
 	"github.com/npcomplete777/dash0-mcp/internal/otlp"
 	"github.com/npcomplete777/dash0-mcp/internal/registry"
 	mcp "github.com/mark3labs/mcp-go/mcp"
@@ -79,7 +83,7 @@ func (p *Tools) QuerySpans() mcp.Tool {
 		Name: "dash0_spans_query",
 		Description: `Query spans from Dash0 with filtering by service, HTTP method, status code, and errors.
 
-Returns flattened span data with calculated duration. Filters use exact match by default.
+Returns spans as a formatted markdown table with duration, status, and key attributes.
 
 Example queries:
 - Get spans for a service: {"service_name": "cart"}
@@ -151,11 +155,16 @@ type FlatSpan struct {
 	ParentSpanID  string                 `json:"parent_span_id,omitempty"`
 	Name          string                 `json:"name"`
 	ServiceName   string                 `json:"service_name"`
+	SpanKind      string                 `json:"span_kind"`
 	DurationMs    float64                `json:"duration_ms"`
 	StartTime     string                 `json:"start_time"`
 	EndTime       string                 `json:"end_time"`
 	StatusCode    int                    `json:"status_code"`
 	StatusMessage string                 `json:"status_message,omitempty"`
+	K8sPodName    string                 `json:"k8s_pod_name,omitempty"`
+	EventCount    int                    `json:"event_count"`
+	LinkCount     int                    `json:"link_count"`
+	HasChildren   bool                   `json:"has_children"`
 	Attributes    map[string]interface{} `json:"attributes,omitempty"`
 }
 
@@ -163,6 +172,7 @@ type FlatSpan struct {
 func (p *Tools) QuerySpansHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
 	// Build filters
 	var filters []AttributeFilter
+	var filterDescs []string
 
 	if serviceName, ok := args["service_name"].(string); ok {
 		serviceName = strings.TrimSpace(serviceName)
@@ -172,6 +182,7 @@ func (p *Tools) QuerySpansHandler(ctx context.Context, args map[string]interface
 				Operator: "is",
 				Value:    &AttributeFilterValue{StringValue: &serviceName},
 			})
+			filterDescs = append(filterDescs, "service="+serviceName)
 		}
 	}
 
@@ -183,6 +194,7 @@ func (p *Tools) QuerySpansHandler(ctx context.Context, args map[string]interface
 				Operator: "is",
 				Value:    &AttributeFilterValue{StringValue: &httpMethod},
 			})
+			filterDescs = append(filterDescs, "method="+httpMethod)
 		}
 	}
 
@@ -193,6 +205,7 @@ func (p *Tools) QuerySpansHandler(ctx context.Context, args map[string]interface
 			Operator: "is",
 			Value:    &AttributeFilterValue{IntValue: &statusStr},
 		})
+		filterDescs = append(filterDescs, "status="+statusStr)
 	}
 
 	if spanName, ok := args["span_name"].(string); ok {
@@ -203,6 +216,7 @@ func (p *Tools) QuerySpansHandler(ctx context.Context, args map[string]interface
 				Operator: "is",
 				Value:    &AttributeFilterValue{StringValue: &spanName},
 			})
+			filterDescs = append(filterDescs, "name="+spanName)
 		}
 	}
 
@@ -213,6 +227,7 @@ func (p *Tools) QuerySpansHandler(ctx context.Context, args map[string]interface
 			Operator: "is",
 			Value:    &AttributeFilterValue{IntValue: &errorCode},
 		})
+		filterDescs = append(filterDescs, "errors_only")
 	}
 
 	// Calculate time range
@@ -273,6 +288,9 @@ func (p *Tools) QuerySpansHandler(ctx context.Context, args map[string]interface
 	// Flatten the OTLP response
 	flatSpans := flattenSpansResponse(result.Data)
 
+	// Derive HasChildren for each span
+	deriveHasChildren(flatSpans)
+
 	// Apply client-side duration filter if specified
 	if minDuration, ok := args["min_duration_ms"].(float64); ok && minDuration > 0 {
 		var filtered []FlatSpan
@@ -282,10 +300,15 @@ func (p *Tools) QuerySpansHandler(ctx context.Context, args map[string]interface
 			}
 		}
 		flatSpans = filtered
+		filterDescs = append(filterDescs, fmt.Sprintf("min_duration>=%.0fms", minDuration))
 	}
 
+	// Build markdown table
+	md := formatSpansMarkdown(flatSpans, from, now, filterDescs, limit)
+
 	return &client.ToolResult{
-		Success: true,
+		Success:  true,
+		Markdown: md,
 		Data: map[string]interface{}{
 			"spans": flatSpans,
 			"count": len(flatSpans),
@@ -299,6 +322,190 @@ func (p *Tools) QuerySpansHandler(ctx context.Context, args map[string]interface
 			},
 		},
 	}
+}
+
+// deriveHasChildren sets HasChildren on each span by checking if its SpanID
+// appears as a ParentSpanID in any other span.
+func deriveHasChildren(spans []FlatSpan) {
+	parentIDs := make(map[string]struct{}, len(spans))
+	for _, s := range spans {
+		if s.ParentSpanID != "" {
+			parentIDs[s.ParentSpanID] = struct{}{}
+		}
+	}
+	for i := range spans {
+		if _, ok := parentIDs[spans[i].SpanID]; ok {
+			spans[i].HasChildren = true
+		}
+	}
+}
+
+// computeSpanStats calculates summary statistics for the stats line.
+func computeSpanStats(spans []FlatSpan) string {
+	if len(spans) == 0 {
+		return ""
+	}
+
+	// Collect durations and counts
+	durations := make([]float64, 0, len(spans))
+	var totalDuration float64
+	var errorCount int
+	serviceCounts := make(map[string]int)
+	opCounts := make(map[string]int)
+
+	for _, s := range spans {
+		durations = append(durations, s.DurationMs)
+		totalDuration += s.DurationMs
+		if s.StatusCode == 2 {
+			errorCount++
+		}
+		if s.ServiceName != "" {
+			serviceCounts[s.ServiceName]++
+		}
+		if s.Name != "" {
+			opCounts[s.Name]++
+		}
+	}
+
+	n := len(durations)
+	sort.Float64s(durations)
+	avg := totalDuration / float64(n)
+	maxDur := durations[n-1]
+
+	// P95: index = ceil(0.95 * n) - 1, clamped
+	p95Idx := int(math.Ceil(0.95*float64(n))) - 1
+	if p95Idx < 0 {
+		p95Idx = 0
+	}
+	if p95Idx >= n {
+		p95Idx = n - 1
+	}
+	p95 := durations[p95Idx]
+
+	// Error rate
+	errorRate := float64(errorCount) / float64(n) * 100
+
+	// Top services (up to 5)
+	type kv struct {
+		Key   string
+		Count int
+	}
+	topServices := topN(serviceCounts, 5)
+	topOps := topN(opCounts, 3)
+
+	var parts []string
+	parts = append(parts, fmt.Sprintf("Avg: %s", formatter.FormatDuration(avg)))
+	parts = append(parts, fmt.Sprintf("P95: %s", formatter.FormatDuration(p95)))
+	parts = append(parts, fmt.Sprintf("Max: %s", formatter.FormatDuration(maxDur)))
+	parts = append(parts, fmt.Sprintf("Error rate: %.1f%% (%d/%d)", errorRate, errorCount, n))
+
+	if len(topServices) > 0 {
+		var svcParts []string
+		for _, s := range topServices {
+			svcParts = append(svcParts, fmt.Sprintf("%s (%d)", s.Key, s.Count))
+		}
+		parts = append(parts, "Services: "+strings.Join(svcParts, ", "))
+	}
+
+	if len(topOps) > 0 {
+		var opParts []string
+		for _, o := range topOps {
+			opParts = append(opParts, fmt.Sprintf("%s (%d)", o.Key, o.Count))
+		}
+		parts = append(parts, "Ops: "+strings.Join(opParts, ", "))
+	}
+
+	return "> **Stats:** " + strings.Join(parts, " | ")
+}
+
+type kvPair struct {
+	Key   string
+	Count int
+}
+
+func topN(counts map[string]int, n int) []kvPair {
+	pairs := make([]kvPair, 0, len(counts))
+	for k, v := range counts {
+		pairs = append(pairs, kvPair{k, v})
+	}
+	sort.Slice(pairs, func(i, j int) bool {
+		return pairs[i].Count > pairs[j].Count
+	})
+	if len(pairs) > n {
+		pairs = pairs[:n]
+	}
+	return pairs
+}
+
+// formatSpansMarkdown renders spans as a markdown table.
+func formatSpansMarkdown(spans []FlatSpan, from, to time.Time, filterDescs []string, limit int) string {
+	// Build summary
+	summaryParts := []string{fmt.Sprintf("**Found %d spans**", len(spans))}
+	summaryParts = append(summaryParts, fmt.Sprintf("Time: %s → %s", from.Format("15:04:05"), to.Format("15:04:05 2006-01-02")))
+	if len(filterDescs) > 0 {
+		summaryParts = append(summaryParts, "Filters: "+strings.Join(filterDescs, ", "))
+	}
+	summary := strings.Join(summaryParts, " | ")
+
+	// Add stats block
+	stats := computeSpanStats(spans)
+	if stats != "" {
+		summary = summary + "\n\n" + stats
+	}
+
+	headers := []string{"#", "Service", "Name", "Kind", "Duration", "Status", "HTTP", "Pod", "Children", "Trace ID"}
+	var rows [][]string
+
+	for i, span := range spans {
+		httpInfo := ""
+		if method, ok := span.Attributes["http.request.method"].(string); ok {
+			httpInfo = method
+			if code, ok := span.Attributes["http.response.status_code"]; ok {
+				httpInfo += fmt.Sprintf(" %v", code)
+			}
+			if route, ok := span.Attributes["http.route"].(string); ok {
+				httpInfo += " " + formatter.Truncate(route, 30)
+			}
+		}
+
+		// Build name with event/link details
+		displayName := formatter.Truncate(span.Name, 30)
+		var details []string
+		if span.EventCount > 0 {
+			details = append(details, fmt.Sprintf("%d events", span.EventCount))
+		}
+		if span.LinkCount > 0 {
+			details = append(details, fmt.Sprintf("%d links", span.LinkCount))
+		}
+		if len(details) > 0 {
+			displayName += " [" + strings.Join(details, ", ") + "]"
+		}
+
+		childrenStr := "no"
+		if span.HasChildren {
+			childrenStr = "yes"
+		}
+
+		rows = append(rows, []string{
+			fmt.Sprintf("%d", i+1),
+			formatter.Truncate(span.ServiceName, 20),
+			displayName,
+			span.SpanKind,
+			formatter.FormatDuration(span.DurationMs),
+			formatter.StatusName(span.StatusCode),
+			httpInfo,
+			formatter.Truncate(span.K8sPodName, 25),
+			childrenStr,
+			formatter.Truncate(span.TraceID, 16),
+		})
+	}
+
+	footer := ""
+	if len(spans) >= limit {
+		footer = fmt.Sprintf("_Showing %d of %d+ spans (limit reached). Use `limit=%d` for more, or narrow filters._", len(spans), len(spans), limit*2)
+	}
+
+	return formatter.Table("Span Query Results", summary, headers, rows, footer)
 }
 
 // flattenSpansResponse extracts spans from nested OTLP response structure.
@@ -321,8 +528,9 @@ func flattenSpansResponse(data interface{}) []FlatSpan {
 			continue
 		}
 
-		// Extract service name from resource attributes
+		// Extract service name and K8s pod from resource attributes
 		serviceName := extractServiceName(rsMap)
+		k8sPodName := extractResourceAttribute(rsMap, "k8s.pod.name")
 
 		scopeSpans, ok := rsMap["scopeSpans"].([]interface{})
 		if !ok {
@@ -348,6 +556,7 @@ func flattenSpansResponse(data interface{}) []FlatSpan {
 
 				flat := FlatSpan{
 					ServiceName: serviceName,
+					K8sPodName:  k8sPodName,
 				}
 
 				if name, ok := spanMap["name"].(string); ok {
@@ -361,6 +570,21 @@ func flattenSpansResponse(data interface{}) []FlatSpan {
 				}
 				if parentSpanID, ok := spanMap["parentSpanId"].(string); ok {
 					flat.ParentSpanID = parentSpanID
+				}
+
+				// Extract span kind
+				if kind, ok := spanMap["kind"].(float64); ok {
+					flat.SpanKind = formatter.SpanKindName(int(kind))
+				} else {
+					flat.SpanKind = "UNSPECIFIED"
+				}
+
+				// Count events and links
+				if events, ok := spanMap["events"].([]interface{}); ok {
+					flat.EventCount = len(events)
+				}
+				if links, ok := spanMap["links"].([]interface{}); ok {
+					flat.LinkCount = len(links)
 				}
 
 				// Calculate duration
@@ -402,6 +626,32 @@ func extractServiceName(rsMap map[string]interface{}) string {
 	return otlp.ExtractServiceName(rsMap)
 }
 
+// extractResourceAttribute extracts a specific attribute from resource attributes.
+func extractResourceAttribute(rsMap map[string]interface{}, key string) string {
+	resource, ok := rsMap["resource"].(map[string]interface{})
+	if !ok {
+		return ""
+	}
+	attrs, ok := resource["attributes"].([]interface{})
+	if !ok {
+		return ""
+	}
+	for _, attr := range attrs {
+		attrMap, ok := attr.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if attrMap["key"] == key {
+			if value, ok := attrMap["value"].(map[string]interface{}); ok {
+				if strVal, ok := value["stringValue"].(string); ok {
+					return strVal
+				}
+			}
+		}
+	}
+	return ""
+}
+
 // extractSpanAttributes extracts commonly used attributes from a span.
 func extractSpanAttributes(spanMap map[string]interface{}) map[string]interface{} {
 	result := make(map[string]interface{})
@@ -413,20 +663,20 @@ func extractSpanAttributes(spanMap map[string]interface{}) map[string]interface{
 
 	// Keys we want to extract
 	interestingKeys := map[string]bool{
-		"http.request.method":      true,
+		"http.request.method":       true,
 		"http.response.status_code": true,
-		"http.route":               true,
-		"http.url":                 true,
-		"http.target":              true,
-		"db.system":                true,
-		"db.statement":             true,
-		"rpc.method":               true,
-		"rpc.service":              true,
-		"messaging.system":         true,
-		"messaging.operation":      true,
-		"error.type":               true,
-		"exception.type":           true,
-		"exception.message":        true,
+		"http.route":                true,
+		"http.url":                  true,
+		"http.target":               true,
+		"db.system":                 true,
+		"db.statement":              true,
+		"rpc.method":                true,
+		"rpc.service":               true,
+		"messaging.system":          true,
+		"messaging.operation":       true,
+		"error.type":                true,
+		"exception.type":            true,
+		"exception.message":         true,
 	}
 
 	for _, attr := range attrs {

@@ -6,6 +6,7 @@ import (
 	"net/url"
 
 	"github.com/npcomplete777/dash0-mcp/internal/client"
+	"github.com/npcomplete777/dash0-mcp/internal/formatter"
 	"github.com/npcomplete777/dash0-mcp/internal/registry"
 	mcp "github.com/mark3labs/mcp-go/mcp"
 )
@@ -63,7 +64,114 @@ func (p *Tools) ListSyntheticChecks() mcp.Tool {
 
 // ListSyntheticChecksHandler handles the dash0_synthetic_checks_list tool.
 func (p *Tools) ListSyntheticChecksHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
-	return p.client.Get(ctx, basePath)
+	result := p.client.Get(ctx, basePath)
+	if result.Success {
+		result.Markdown = formatSyntheticChecksList(result.Data)
+	}
+	return result
+}
+
+// formatSyntheticChecksList formats synthetic checks as a markdown table.
+func formatSyntheticChecksList(data interface{}) string {
+	items := extractItems(data)
+	if len(items) == 0 {
+		return "## Synthetic Checks\n\nNo synthetic checks found.\n"
+	}
+
+	headers := []string{"#", "Name", "Kind", "Enabled", "Interval", "Locations", "URL", "Origin"}
+	var rows [][]string
+
+	for i, item := range items {
+		m, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		name := extractNestedField(m, "metadata", "name")
+		kind := fmt.Sprintf("%v", m["kind"])
+		enabled := ""
+		interval := ""
+		locations := ""
+		checkURL := ""
+		origin := extractNestedField(m, "metadata", "origin")
+
+		if spec, ok := m["spec"].(map[string]interface{}); ok {
+			if e, ok := spec["enabled"].(bool); ok {
+				if e {
+					enabled = "yes"
+				} else {
+					enabled = "no"
+				}
+			}
+			if sched, ok := spec["schedule"].(map[string]interface{}); ok {
+				interval = fmt.Sprintf("%v", sched["interval"])
+				if locs, ok := sched["locations"].([]interface{}); ok {
+					locStrs := make([]string, len(locs))
+					for j, l := range locs {
+						locStrs[j] = fmt.Sprintf("%v", l)
+					}
+					locations = formatter.Truncate(fmt.Sprintf("%v", locStrs), 25)
+				}
+			}
+			if plugin, ok := spec["plugin"].(map[string]interface{}); ok {
+				if ps, ok := plugin["spec"].(map[string]interface{}); ok {
+					if req, ok := ps["request"].(map[string]interface{}); ok {
+						checkURL = fmt.Sprintf("%v", req["url"])
+					}
+				}
+			}
+		}
+
+		rows = append(rows, []string{
+			fmt.Sprintf("%d", i+1),
+			formatter.Truncate(name, 25),
+			kind,
+			enabled,
+			interval,
+			locations,
+			formatter.Truncate(checkURL, 40),
+			formatter.Truncate(origin, 25),
+		})
+	}
+
+	summary := fmt.Sprintf("**Found %d synthetic checks**", len(rows))
+	return formatter.Table("Synthetic Checks", summary, headers, rows, "")
+}
+
+// extractItems tries to get a slice of items from various response shapes.
+func extractItems(data interface{}) []interface{} {
+	if data == nil {
+		return nil
+	}
+	if arr, ok := data.([]interface{}); ok {
+		return arr
+	}
+	if m, ok := data.(map[string]interface{}); ok {
+		for _, key := range []string{"items", "data", "results"} {
+			if arr, ok := m[key].([]interface{}); ok {
+				return arr
+			}
+		}
+	}
+	return nil
+}
+
+func extractNestedField(m map[string]interface{}, keys ...string) string {
+	current := m
+	for i, key := range keys {
+		if i == len(keys)-1 {
+			if v, ok := current[key]; ok && v != nil {
+				return fmt.Sprintf("%v", v)
+			}
+			return ""
+		}
+		next, ok := current[key].(map[string]interface{})
+		if !ok {
+			return ""
+		}
+		current = next
+	}
+	return ""
 }
 
 // GetSyntheticCheck returns the dash0_synthetic_checks_get tool definition.

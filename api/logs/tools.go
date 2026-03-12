@@ -2,11 +2,14 @@ package logs
 
 import (
 	"context"
+	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/npcomplete777/dash0-mcp/internal/client"
+	"github.com/npcomplete777/dash0-mcp/internal/formatter"
 	"github.com/npcomplete777/dash0-mcp/internal/otlp"
 	"github.com/npcomplete777/dash0-mcp/internal/registry"
 	mcp "github.com/mark3labs/mcp-go/mcp"
@@ -79,7 +82,7 @@ func (p *Tools) QueryLogs() mcp.Tool {
 		Name: "dash0_logs_query",
 		Description: `Query logs from Dash0 with filtering by service and time range.
 
-Returns flattened log records with severity, body, and trace context.
+Returns logs as a formatted markdown table with severity, body, and trace context.
 
 NOTE: Only service_name filtering works reliably via the API. Severity filtering
 is applied client-side after fetching results.
@@ -137,14 +140,17 @@ type QueryLogsRequest struct {
 
 // FlatLog represents a flattened log record.
 type FlatLog struct {
-	Timestamp      string                 `json:"timestamp"`
-	ServiceName    string                 `json:"service_name"`
-	SeverityText   string                 `json:"severity_text"`
-	SeverityNumber int                    `json:"severity_number"`
-	Body           string                 `json:"body"`
-	TraceID        string                 `json:"trace_id,omitempty"`
-	SpanID         string                 `json:"span_id,omitempty"`
-	Attributes     map[string]interface{} `json:"attributes,omitempty"`
+	Timestamp        string                 `json:"timestamp"`
+	ServiceName      string                 `json:"service_name"`
+	SeverityText     string                 `json:"severity_text"`
+	SeverityNumber   int                    `json:"severity_number"`
+	Body             string                 `json:"body"`
+	TraceID          string                 `json:"trace_id,omitempty"`
+	SpanID           string                 `json:"span_id,omitempty"`
+	K8sNamespace     string                 `json:"k8s_namespace,omitempty"`
+	K8sPodName       string                 `json:"k8s_pod_name,omitempty"`
+	K8sContainerName string                 `json:"k8s_container_name,omitempty"`
+	Attributes       map[string]interface{} `json:"attributes,omitempty"`
 }
 
 // severityOrder defines the ordering of severity levels.
@@ -161,6 +167,7 @@ var severityOrder = map[string]int{
 func (p *Tools) QueryLogsHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
 	// Build filters
 	var filters []AttributeFilter
+	var filterDescs []string
 
 	if serviceName, ok := args["service_name"].(string); ok {
 		serviceName = strings.TrimSpace(serviceName)
@@ -170,6 +177,7 @@ func (p *Tools) QueryLogsHandler(ctx context.Context, args map[string]interface{
 				Operator: "is",
 				Value:    &AttributeFilterValue{StringValue: &serviceName},
 			})
+			filterDescs = append(filterDescs, "service="+serviceName)
 		}
 	}
 
@@ -241,6 +249,7 @@ func (p *Tools) QueryLogsHandler(ctx context.Context, args map[string]interface{
 			}
 		}
 		flatLogs = filtered
+		filterDescs = append(filterDescs, "severity>="+minSeverity)
 	}
 
 	// Apply client-side body contains filter if specified
@@ -253,6 +262,7 @@ func (p *Tools) QueryLogsHandler(ctx context.Context, args map[string]interface{
 			}
 		}
 		flatLogs = filtered
+		filterDescs = append(filterDescs, "body~"+bodyContains)
 	}
 
 	// Apply final limit
@@ -260,8 +270,12 @@ func (p *Tools) QueryLogsHandler(ctx context.Context, args map[string]interface{
 		flatLogs = flatLogs[:limit]
 	}
 
+	// Build markdown table
+	md := formatLogsMarkdown(flatLogs, from, now, filterDescs, limit)
+
 	return &client.ToolResult{
-		Success: true,
+		Success:  true,
+		Markdown: md,
 		Data: map[string]interface{}{
 			"logs":  flatLogs,
 			"count": len(flatLogs),
@@ -275,6 +289,154 @@ func (p *Tools) QueryLogsHandler(ctx context.Context, args map[string]interface{
 			},
 		},
 	}
+}
+
+// formatLogsMarkdown renders logs as a markdown table with summary statistics.
+func formatLogsMarkdown(logs []FlatLog, from, to time.Time, filterDescs []string, limit int) string {
+	summaryParts := []string{fmt.Sprintf("**Found %d logs**", len(logs))}
+	summaryParts = append(summaryParts, fmt.Sprintf("Time: %s → %s", from.Format("15:04:05"), to.Format("15:04:05 2006-01-02")))
+	if len(filterDescs) > 0 {
+		summaryParts = append(summaryParts, "Filters: "+strings.Join(filterDescs, ", "))
+	}
+	summary := strings.Join(summaryParts, " | ")
+
+	// Build statistics
+	if len(logs) > 0 {
+		summary += "\n\n" + buildLogStats(logs)
+	}
+
+	headers := []string{"#", "Timestamp", "Service", "Severity", "Body", "Pod", "Trace ID"}
+	var rows [][]string
+
+	for i, log := range logs {
+		ts := log.Timestamp
+		if t, err := time.Parse(time.RFC3339Nano, log.Timestamp); err == nil {
+			ts = t.Format("15:04:05.000")
+		}
+
+		pod := log.K8sPodName
+		if pod == "" && log.K8sContainerName != "" {
+			pod = log.K8sContainerName
+		}
+
+		rows = append(rows, []string{
+			fmt.Sprintf("%d", i+1),
+			ts,
+			formatter.Truncate(log.ServiceName, 20),
+			log.SeverityText,
+			formatter.Truncate(log.Body, 60),
+			formatter.Truncate(pod, 25),
+			formatter.Truncate(log.TraceID, 16),
+		})
+	}
+
+	footer := ""
+	if len(logs) >= limit {
+		footer = fmt.Sprintf("_Showing %d of %d+ logs (limit reached). Use limit=500 for more, or add filters._", len(logs), len(logs))
+	}
+
+	return formatter.Table("Log Query Results", summary, headers, rows, footer)
+}
+
+// buildLogStats computes summary statistics for a set of logs.
+func buildLogStats(logs []FlatLog) string {
+	// Severity distribution
+	sevCounts := make(map[string]int)
+	// Service counts
+	svcCounts := make(map[string]int)
+	// Pod counts
+	podCounts := make(map[string]int)
+	// Trace ID presence
+	withTrace := 0
+
+	for _, log := range logs {
+		sev := log.SeverityText
+		if sev == "" {
+			sev = "UNSET"
+		}
+		sevCounts[sev]++
+
+		if log.ServiceName != "" {
+			svcCounts[log.ServiceName]++
+		}
+
+		pod := log.K8sPodName
+		if pod != "" {
+			podCounts[pod]++
+		}
+
+		if log.TraceID != "" {
+			withTrace++
+		}
+	}
+
+	var statParts []string
+
+	// Severity distribution in priority order
+	sevOrder := []string{"FATAL", "ERROR", "WARN", "INFO", "DEBUG", "TRACE", "UNSET"}
+	var sevParts []string
+	for _, sev := range sevOrder {
+		if count, ok := sevCounts[sev]; ok && count > 0 {
+			sevParts = append(sevParts, fmt.Sprintf("%s: %d", sev, count))
+		}
+	}
+	if len(sevParts) > 0 {
+		statParts = append(statParts, strings.Join(sevParts, " | "))
+	}
+
+	// Top services (up to 5)
+	if len(svcCounts) > 0 {
+		type kv struct {
+			key   string
+			count int
+		}
+		sorted := make([]kv, 0, len(svcCounts))
+		for k, v := range svcCounts {
+			sorted = append(sorted, kv{k, v})
+		}
+		sort.Slice(sorted, func(i, j int) bool {
+			return sorted[i].count > sorted[j].count
+		})
+		maxSvc := 5
+		if len(sorted) < maxSvc {
+			maxSvc = len(sorted)
+		}
+		var svcParts []string
+		for _, s := range sorted[:maxSvc] {
+			svcParts = append(svcParts, fmt.Sprintf("%s (%d)", s.key, s.count))
+		}
+		statParts = append(statParts, "Services: "+strings.Join(svcParts, ", "))
+	}
+
+	// Trace percentage
+	tracePercent := withTrace * 100 / len(logs)
+	statParts = append(statParts, fmt.Sprintf("With traces: %d%%", tracePercent))
+
+	// Top pods (up to 3), only if any exist
+	if len(podCounts) > 0 {
+		type kv struct {
+			key   string
+			count int
+		}
+		sorted := make([]kv, 0, len(podCounts))
+		for k, v := range podCounts {
+			sorted = append(sorted, kv{k, v})
+		}
+		sort.Slice(sorted, func(i, j int) bool {
+			return sorted[i].count > sorted[j].count
+		})
+		maxPod := 3
+		if len(sorted) < maxPod {
+			maxPod = len(sorted)
+		}
+		var podParts []string
+		for _, p := range sorted[:maxPod] {
+			podParts = append(podParts, fmt.Sprintf("%s (%d)", p.key, p.count))
+		}
+		statParts = append(statParts, "Pods: "+strings.Join(podParts, ", "))
+	}
+
+	return "> **Stats:** " + strings.Join(statParts, " | ")
 }
 
 // flattenLogsResponse extracts logs from nested OTLP response structure.
@@ -297,8 +459,11 @@ func flattenLogsResponse(data interface{}) []FlatLog {
 			continue
 		}
 
-		// Extract service name from resource attributes
+		// Extract service name and K8s info from resource attributes
 		serviceName := extractServiceName(rlMap)
+		k8sNamespace := extractResourceAttribute(rlMap, "k8s.namespace.name")
+		k8sPodName := extractResourceAttribute(rlMap, "k8s.pod.name")
+		k8sContainerName := extractResourceAttribute(rlMap, "k8s.container.name")
 
 		scopeLogs, ok := rlMap["scopeLogs"].([]interface{})
 		if !ok {
@@ -323,7 +488,10 @@ func flattenLogsResponse(data interface{}) []FlatLog {
 				}
 
 				flat := FlatLog{
-					ServiceName: serviceName,
+					ServiceName:      serviceName,
+					K8sNamespace:     k8sNamespace,
+					K8sPodName:       k8sPodName,
+					K8sContainerName: k8sContainerName,
 				}
 
 				// Extract timestamp
@@ -374,6 +542,32 @@ func flattenLogsResponse(data interface{}) []FlatLog {
 // extractServiceName gets service.name from resource attributes.
 func extractServiceName(rlMap map[string]interface{}) string {
 	return otlp.ExtractServiceName(rlMap)
+}
+
+// extractResourceAttribute extracts a specific attribute from resource attributes.
+func extractResourceAttribute(rlMap map[string]interface{}, key string) string {
+	resource, ok := rlMap["resource"].(map[string]interface{})
+	if !ok {
+		return ""
+	}
+	attrs, ok := resource["attributes"].([]interface{})
+	if !ok {
+		return ""
+	}
+	for _, attr := range attrs {
+		attrMap, ok := attr.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if attrMap["key"] == key {
+			if value, ok := attrMap["value"].(map[string]interface{}); ok {
+				if strVal, ok := value["stringValue"].(string); ok {
+					return strVal
+				}
+			}
+		}
+	}
+	return ""
 }
 
 // extractLogAttributes extracts commonly used attributes from a log record.

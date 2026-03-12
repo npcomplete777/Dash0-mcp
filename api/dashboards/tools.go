@@ -6,6 +6,7 @@ import (
 	"net/url"
 
 	"github.com/npcomplete777/dash0-mcp/internal/client"
+	"github.com/npcomplete777/dash0-mcp/internal/formatter"
 	"github.com/npcomplete777/dash0-mcp/internal/registry"
 	mcp "github.com/mark3labs/mcp-go/mcp"
 )
@@ -63,7 +64,11 @@ func (p *Tools) ListDashboards() mcp.Tool {
 
 // ListDashboardsHandler handles the dash0_dashboards_list tool.
 func (p *Tools) ListDashboardsHandler(ctx context.Context, args map[string]interface{}) *client.ToolResult {
-	return p.client.Get(ctx, basePath)
+	result := p.client.Get(ctx, basePath)
+	if result.Success {
+		result.Markdown = formatter.FormatListResponse("Dashboards", result.Data)
+	}
+	return result
 }
 
 // GetDashboard returns the dash0_dashboards_get tool definition.
